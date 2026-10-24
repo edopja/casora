@@ -101,21 +101,60 @@
 
   // Statistics: change over today / this month (cached 5 min per id and period).
   var statCache = {};
-  function change(H, id, period) {
+  function change(H, id, period, offset) {
     if (!id) return null;
-    var k = id + '|' + period, c = statCache[k];
+    var k = id + '|' + period + '|' + (offset || 0), c = statCache[k];
     if (c && Date.now() - c.at < 300000) return c.v;
     if (!c || !c.busy) {
       statCache[k] = { at: c ? c.at : 0, v: c ? c.v : null, busy: true };
-      H.callWS({ type: 'recorder/statistic_during_period', statistic_id: id, types: ['change'], calendar: { period: period }, units: { energy: 'kWh' } }).then(function (r) {
+      H.callWS({ type: 'recorder/statistic_during_period', statistic_id: id, types: ['change'], calendar: offset ? { period: period, offset: offset } : { period: period }, units: { energy: 'kWh' } }).then(function (r) {
         var v = r && typeof r.change === 'number' ? r.change : null;
         statCache[k] = { at: Date.now(), v: v, busy: false };
       }, function () { statCache[k] = { at: Date.now(), v: null, busy: false }; });
     }
     return statCache[k].v;
   }
-  function changeSum(H, ids, period) {
-    var t = null; (ids || []).forEach(function (id) { var v = change(H, id, period); if (v != null) t = (t || 0) + v; }); return t;
+  function changeSum(H, ids, period, offset) {
+    var t = null; (ids || []).forEach(function (id) { var v = change(H, id, period, offset); if (v != null) t = (t || 0) + v; }); return t;
+  }
+  // kWh per day for the last 7 days (today last), summed over ids; cached 10 min.
+  var dayCache = {};
+  function lastWeek(H, ids) {
+    var k = ids.slice().sort().join(','), c = dayCache[k];
+    if (c && Date.now() - c.at < 600000) return c.v;
+    if (!ids.length) return null;
+    if (!c || !c.busy) {
+      dayCache[k] = { at: c ? c.at : 0, v: c ? c.v : null, busy: true };
+      var d0 = new Date(); d0.setHours(0, 0, 0, 0); d0.setDate(d0.getDate() - 6);
+      H.callWS({ type: 'recorder/statistics_during_period', start_time: d0.toISOString(), statistic_ids: ids, period: 'day', types: ['change'], units: { energy: 'kWh' } }).then(function (r) {
+        var days = [0, 0, 0, 0, 0, 0, 0];
+        Object.keys(r || {}).forEach(function (id) { (r[id] || []).forEach(function (row) {
+          var t = typeof row.start === 'number' ? row.start : Date.parse(row.start), i = Math.round((t - d0.getTime()) / 86400000);
+          if (i >= 0 && i < 7 && typeof row.change === 'number' && row.change > 0 && row.change < 200) days[i] += row.change;
+        }); });
+        dayCache[k] = { at: Date.now(), v: days, busy: false };
+      }, function () { dayCache[k] = { at: Date.now(), v: null, busy: false }; });
+    }
+    return dayCache[k].v;
+  }
+  // Hours a climate device ran today (from its history since midnight); cached 5 min.
+  var runCache = {};
+  function hoursOn(H, id) {
+    var c = runCache[id];
+    if (c && Date.now() - c.at < 300000) return c.v;
+    if (!c || !c.busy) {
+      runCache[id] = { at: c ? c.at : 0, v: c ? c.v : null, busy: true };
+      var d0 = new Date(); d0.setHours(0, 0, 0, 0);
+      H.callWS({ type: 'history/history_during_period', start_time: d0.toISOString(), end_time: new Date().toISOString(), entity_ids: [id], minimal_response: true, no_attributes: true, significant_changes_only: false }).then(function (r) {
+        var pts = (r && r[id]) || [], ms = 0;
+        for (var i = 0; i < pts.length; i++) {
+          var t = Math.max(d0.getTime(), (pts[i].lu || pts[i].lc || 0) * 1000), t2 = i + 1 < pts.length ? (pts[i + 1].lu || pts[i + 1].lc) * 1000 : Date.now();
+          if (pts[i].s !== 'off' && pts[i].s !== 'unavailable' && pts[i].s !== 'unknown') ms += Math.max(0, t2 - t);
+        }
+        runCache[id] = { at: Date.now(), v: ms / 3600000, busy: false };
+      }, function () { runCache[id] = { at: Date.now(), v: null, busy: false }; });
+    }
+    return runCache[id].v;
   }
   // An inverter's own "today" counter (kWh, resets at midnight), e.g. sensor.*_day_pv_energy. Preferred over the
   // statistics, which a sensor reset can blow up to thousands of kWh.
@@ -738,6 +777,113 @@
           });
         });
       },
+    };
+  });
+
+  // ── Energy of rooms (Bedrooms → Energy) ──────────────────────────────────────────────────
+  // Per device in the area: its power sensor and its energy counter (one each), plus a name.
+  function roomDevices(H, area) {
+    var R = H.entities || {}, D = H.devices || {}, byDev = {};
+    Object.keys(H.states).forEach(function (e) {
+      if (e.indexOf('sensor.') !== 0) return;
+      var r = R[e]; if (!r || r.hidden) return;
+      var dev = r.device_id, a = r.area_id || (D[dev] || {}).area_id; if (a !== area) return;
+      var dc = dclass(H, e), sc = ((H.states[e].attributes || {}).state_class) || '';
+      var key = dev || e, d = byDev[key] || (byDev[key] = { id: key, name: dev && D[dev] ? (D[dev].name_by_user || D[dev].name) : friendly(H, e), power: null, energy: null, ent: [] });
+      if (dc === 'power' && !d.power && watts(H, e) != null) d.power = e;
+      if (dc === 'energy' && /total/.test(sc) && !d.energy) d.energy = e;
+    });
+    Object.keys(H.states).forEach(function (e) {
+      var r = R[e]; if (!r || !r.device_id || !byDev[r.device_id]) return;
+      if (/^(switch|climate|light|media_player|fan|humidifier)\./.test(e) && !r.entity_category) byDev[r.device_id].ent.push(e);
+    });
+    return Object.keys(byDev).map(function (k) { return byDev[k]; }).filter(function (d) { return d.power || d.energy; });
+  }
+  function roomPower(H, area) {
+    var devs = roomDevices(H, area), w = 0;
+    devs.forEach(function (d) { var v = watts(H, d.power); if (v != null && v > 0) w += v; });
+    return { w: w, ids: devs.map(function (d) { return d.power || d.energy; }), devs: devs };
+  }
+  window.sunyaadRoomPower = roomPower;
+  window.sunyaadMoney = money;
+
+  var ROOM_COL = ['143,184,240', '240,170,110', '160,210,150', '200,160,255'];
+  define('sunyaad-room-energy', function (H, c) {
+    var rooms = c.rooms || [], pr = price(), sig = [pr];
+    var cost = function (k) { return k == null ? null : pr != null ? money(H, k * pr) : fmtKwh(k); };
+    var per = rooms.map(function (r, i) {
+      var p = roomPower(H, r.area), en = p.devs.map(function (d) { return d.energy; }).filter(Boolean);
+      var x = { name: r.name, col: ROOM_COL[i % ROOM_COL.length], w: p.w, devs: p.devs, en: en,
+        today: changeSum(H, en, 'day'), week: changeSum(H, en, 'week'), month: changeSum(H, en, 'month'), lastWeek: changeSum(H, en, 'week', -1), days: lastWeek(H, en) };
+      sig.push(Math.round(x.w), x.today && x.today.toFixed(2), x.week && x.week.toFixed(1), x.month && x.month.toFixed(1), x.days && x.days.join(','));
+      return x;
+    });
+    var sum = function (k) { var t = null; per.forEach(function (x) { if (x[k] != null) t = (t || 0) + x[k]; }); return t; };
+    var W = sum('w') || 0, today = sum('today'), week = sum('week'), month = sum('month'), lw = sum('lastWeek');
+    // This week so far against the same number of days last week.
+    var dow = (new Date().getDay() + 6) % 7 + 1, pace = lw != null && week != null && lw > 0 ? (week / (lw * dow / 7) - 1) * 100 : null;
+    var head = '<div class="kpis">' +
+      '<div class="kp big"><span>' + esc(tr('Running now')) + '</span><b>' + esc(pr != null ? money(H, W / 1000 * pr) : fmtW(W)) + '<small>' + esc(pr != null ? ' / h' : '') + '</small></b><em>' + esc(fmtW(W)) + '</em></div>' +
+      '<div class="kp"><span>' + esc(tr('Today')) + '</span><b>' + esc(cost(today) || '–') + '</b><em>' + esc(today != null ? fmtKwh(today) : '') + '</em></div>' +
+      '<div class="kp"><span>' + esc(tr('This week')) + '</span><b>' + esc(cost(week) || '–') + '</b><em>' + esc(pace == null ? (week != null ? fmtKwh(week) : '') : (pace <= 0 ? '▼ ' : '▲ ') + Math.abs(Math.round(pace)) + '% ' + tr('vs last week')) + '</em></div>' +
+      '<div class="kp"><span>' + esc(tr('This month')) + '</span><b>' + esc(cost(month) || '–') + '</b><em>' + esc(month != null ? fmtKwh(month) : '') + '</em></div></div>';
+    // 7 days, stacked by room
+    var maxD = 0, dayTot = [0, 0, 0, 0, 0, 0, 0];
+    per.forEach(function (x) { (x.days || []).forEach(function (v, i) { dayTot[i] += v; }); });
+    maxD = Math.max.apply(null, dayTot) || 1;
+    var names = ['S', 'M', 'T', 'W', 'T', 'F', 'S'], d0 = new Date(); d0.setDate(d0.getDate() - 6);
+    var bars = '<div class="bars">' + dayTot.map(function (t, i) {
+      var day = new Date(d0.getTime() + i * 86400000);
+      var stack = per.map(function (x) { var v = x.days ? x.days[i] : 0; return v > 0 ? '<i style="height:' + (v / maxD * 100) + '%;background:rgba(' + x.col + ',.85)"></i>' : ''; }).join('');
+      return '<div class="bar' + (i === 6 ? ' today' : '') + '"><div class="col">' + stack + '</div><span>' + names[day.getDay()] + '</span></div>';
+    }).join('') + '</div>';
+    var legend = '<div class="lg">' + per.map(function (x) { return '<span><i style="background:rgb(' + x.col + ')"></i>' + esc(x.name) + '</span>'; }).join('') + '</div>';
+    var roomsHtml = per.map(function (x) {
+      return '<div class="rm" style="--c:' + x.col + '"><div class="rn"><i></i>' + esc(x.name) + '</div>' +
+        '<div class="rv"><b>' + esc(fmtW(x.w)) + '</b><span>' + esc(tr('now')) + '</span></div>' +
+        '<div class="rv"><b>' + esc(cost(x.today) || '–') + '</b><span>' + esc(tr('today')) + '</span></div>' +
+        '<div class="rv"><b>' + esc(cost(x.month) || '–') + '</b><span>' + esc(tr('month')) + '</span></div></div>';
+    }).join('');
+    // Biggest users this month
+    var users = [];
+    per.forEach(function (x) { x.devs.forEach(function (d) { var m = d.energy ? change(H, d.energy, 'month') : null; users.push({ name: d.name, room: x.name, col: x.col, m: m, w: watts(H, d.power) }); }); });
+    users = users.filter(function (u) { return u.m != null && u.m > 0.01; }).sort(function (a, b) { return b.m - a.m; });
+    var topM = users.length ? users[0].m : 1, totM = users.reduce(function (a, u) { return a + u.m; }, 0) || 1;
+    var top = users.slice(0, 6).map(function (u) {
+      sig.push(u.name, u.m.toFixed(2));
+      return '<div class="us"><div class="ut"><b>' + esc(u.name) + '</b><span>' + esc(u.room) + '</span><em>' + esc(cost(u.m)) + ' · ' + Math.round(u.m / totM * 100) + '%</em></div><div class="ub"><i style="width:' + (u.m / topM * 100) + '%;background:rgb(' + u.col + ')"></i></div></div>';
+    }).join('');
+    // Standby: switched-on plugs drawing almost nothing
+    var idleW = 0, idleN = 0;
+    per.forEach(function (x) { x.devs.forEach(function (d) { var w = watts(H, d.power); if (w != null && w > 0.3 && w < 10) { idleW += w; idleN++; } }); });
+    // AC hours today
+    var acs = [];
+    rooms.forEach(function (r) { inArea(H, r.area, 'climate').forEach(function (e) { var h = hoursOn(H, e); acs.push({ name: friendly(H, e), h: h }); sig.push(e, h && h.toFixed(1)); }); });
+    var side = '<div class="blk"><div class="t">' + esc(tr('Standby')) + '</div><div class="sb"><b>' + esc(fmtW(idleW)) + '</b><span>' + esc(idleN + ' ' + tr(idleN === 1 ? 'device idling' : 'devices idling')) + '</span></div>' +
+      '<div class="note">' + esc(pr != null ? '≈ ' + money(H, idleW * 24 * 30 / 1000 * pr) + ' ' + tr('a month for nothing') : '≈ ' + fmtKwh(idleW * 24 * 30 / 1000) + ' ' + tr('a month')) + '</div></div>' +
+      (acs.length ? '<div class="blk"><div class="t">' + esc(tr('AC running today')) + '</div>' + acs.map(function (a) { return '<div class="ac"><span>' + esc(a.name) + '</span><b>' + (a.h == null ? '–' : a.h < 0.05 ? esc(tr('Off all day')) : a.h.toFixed(1) + ' h') + '</b></div>'; }).join('') + '</div>' : '');
+    sig.push(Math.round(idleW));
+    var html = '<div class="wrap"><div class="main">' + head + '<div class="blk"><div class="t">' + esc(tr('Last 7 days')) + '</div>' + bars + legend + '</div>' +
+      '<div class="rooms">' + roomsHtml + '</div></div>' +
+      '<div class="aside">' + (top ? '<div class="blk"><div class="t">' + esc(tr('Biggest users this month')) + '</div>' + top + '</div>' : '') + side +
+      (pr == null ? '<div class="note">' + esc(tr('Set your electricity price in Sunyaad Studio → Settings to see costs.')) + '</div>' : '') + '</div></div>';
+    return {
+      sig: sig.join('|'), html: html,
+      css: '.wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}.main,.aside{display:grid;gap:10px;align-content:start}' +
+        '.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}.kp{border-radius:16px;padding:10px 12px;background:rgba(255,255,255,.07)}' +
+        '.kp span{display:block;font-size:10.5px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:rgba(255,255,255,.55)}.kp b{display:block;font-size:19px;font-weight:800;margin-top:2px}.kp b small{font-size:12px;opacity:.7}.kp em{font-style:normal;font-size:11.5px;color:rgba(255,255,255,.55)}' +
+        '.kp.big{background:linear-gradient(160deg,rgba(255,190,90,.22),rgba(255,255,255,.06))}.kp.big b{font-size:24px}' +
+        '.t{font-size:11px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:8px}' +
+        '.bars{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;height:110px;align-items:end}.bar{display:flex;flex-direction:column;align-items:center;gap:4px;height:100%}' +
+        '.col{flex:1;width:100%;max-width:30px;display:flex;flex-direction:column-reverse;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.05)}.col i{display:block;width:100%}' +
+        '.bar span{font-size:10.5px;color:rgba(255,255,255,.55)}.bar.today span{color:#fff;font-weight:700}' +
+        '.lg{display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:rgba(255,255,255,.7)}.lg i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}' +
+        '.rooms{display:grid;gap:6px}.rm{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;align-items:center;gap:6px;border-radius:14px;padding:9px 12px;background:rgba(var(--c),.10)}' +
+        '.rn{font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:7px}.rn i{width:8px;height:8px;border-radius:50%;background:rgb(var(--c))}.rv b{display:block;font-size:14px}.rv span{font-size:10.5px;color:rgba(255,255,255,.55)}' +
+        '.us{margin-bottom:9px}.ut{display:flex;align-items:baseline;gap:6px;font-size:12.5px}.ut b{font-size:13px}.ut span{color:rgba(255,255,255,.5)}.ut em{margin-left:auto;font-style:normal;color:rgba(255,255,255,.75)}' +
+        '.ub{height:6px;border-radius:4px;background:rgba(255,255,255,.08);margin-top:4px;overflow:hidden}.ub i{display:block;height:100%;border-radius:4px}' +
+        '.sb b{font-size:20px;font-weight:800;margin-right:8px}.sb span{font-size:12px;color:rgba(255,255,255,.6)}.note{font-size:12px;color:rgba(255,255,255,.6);margin-top:4px}' +
+        '.ac{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-top:1px solid rgba(255,255,255,.06)}.ac:first-of-type{border-top:0}',
     };
   });
 

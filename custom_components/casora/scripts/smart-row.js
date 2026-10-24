@@ -2245,6 +2245,14 @@ class CasoraSections extends HTMLElement {
       const on = lights.filter((e) => S[e].state === 'on').length;
       tile(tr('Lights'), 'light', on ? on + ' ' + tr('on') : tr('All off'), lights, { type: 'custom:sunyaad-lights', rooms });
     }
+    const media = all('media');
+    if (media.length) {
+      const play = media.filter((e) => S[e].state === 'playing');
+      const on = media.filter((e) => ['on', 'playing', 'paused', 'idle'].indexOf(S[e].state) >= 0);
+      tile(tr('Entertainment'), 'tv', play.length ? ((S[play[0]].attributes || {}).media_title || tr('Playing')) : on.length ? on.length + ' ' + tr('on') : tr('Off'), media, {
+        type: 'custom:sunyaad-tiles',
+        sections: per.map((r) => ({ title: r.name, empty: 'No TV here', cards: r.sec.media.map((e) => ({ type: 'custom:button-card', template: 'casora_media', entity: e })) })) });
+    }
     const climate = all('climate');
     if (climate.length) {
       const on = climate.filter((e) => S[e].state !== 'off');
@@ -2257,22 +2265,16 @@ class CasoraSections extends HTMLElement {
       const on = plugs.filter((e) => S[e].state === 'on').length;
       tile(tr('Appliances'), 'plug', on ? on + ' ' + tr('on') : tr('Off'), plugs, { type: 'custom:sunyaad-appliances', rooms });
     }
-    per.forEach((r) => {
-      const bits = [], on = r.sec.lights.filter((e) => S[e].state === 'on').length;
-      const ac = r.sec.climate.find((e) => e.startsWith('climate.'));
-      if (ac) { const a = S[ac].attributes || {}; bits.push(S[ac].state === 'off' ? tr('AC off') : tr('AC') + ' ' + (a.temperature != null ? a.temperature + '°' : tr('on'))); }
-      bits.push(on ? on + ' ' + tr('lights on') : tr('Lights off'));
-      const occ = r.sec.sensors.some((e) => /occupancy|presence|motion/.test((S[e].attributes || {}).device_class || '') && S[e].state === 'on');
-      if (occ) bits.unshift(tr('Occupied'));
-      tile(r.name, 'bedroom', bits.join(' · '), [].concat(r.sec.lights, r.sec.climate, r.sec.media), { type: 'custom:sunyaad-room', area: r.area, name: r.name });
-    });
-    const sensors = all('sensors');
-    if (sensors.length) {
-      const occ = sensors.filter((e) => /occupancy|presence|motion/.test((S[e].attributes || {}).device_class || '') && S[e].state === 'on');
-      tile(tr('Sensors'), 'motion', occ.length ? tr('Someone in') : tr('Clear'), sensors.filter((e) => e.startsWith('binary_sensor.')), {
-        type: 'custom:sunyaad-tiles',
-        sections: per.map((r) => ({ title: r.name, empty: 'No sensors here', cards: r.sec.sensors.map((e) => ({ type: 'custom:button-card', template: /occupancy|presence|motion/.test((S[e].attributes || {}).device_class || '') ? 'casora_motion' : 'casora_entity', entity: e })) })) });
+    // Energy: live cost of what the rooms draw now; the pop-up has today, week, month, top users, standby.
+    if (window.sunyaadRoomPower) {
+      const pw = per.map((r) => window.sunyaadRoomPower(H, r.area));
+      if (pw.some((x) => x.ids.length)) {
+        const w = pw.reduce((a, x) => a + x.w, 0), pr = window.casoraPriceKwh ? window.casoraPriceKwh() : null;
+        const state = pr != null && window.sunyaadMoney ? window.sunyaadMoney(H, w / 1000 * pr) + ' / h' : Math.round(w) + ' W';
+        tile(tr('Energy'), 'energy', state, [], { type: 'custom:sunyaad-room-energy', rooms });
+      }
     }
+    // Presence (who is in, doors) lives in the banner above the tiles: Occupied / Empty opens it.
     return cards.length ? { cards, sig: 'm|' + sig.join('|') } : null;
   }
   _grouped() {
