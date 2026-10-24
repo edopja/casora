@@ -169,6 +169,11 @@
     'button{font:inherit;color:inherit}' +
     '@media (max-width:560px){.st .v{font-size:17px}}';
 
+  // Section heading inside a pop-up (a room's name, "Lights" …) with its quick actions on the right.
+  var GH_CSS = '.gh{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:4px 4px -2px;font-size:12px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,.7)}' +
+    '.gh em{font-style:normal;font-weight:500;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.5);margin-left:6px}' +
+    '.gh .all{display:flex;gap:6px}.gh .all button{border:0;border-radius:999px;padding:5px 11px;background:rgba(255,255,255,.12);color:#fff;font:inherit;font-size:11.5px;font-weight:600;letter-spacing:0;text-transform:none;cursor:pointer}' +
+    '.gh .all button:hover{background:rgba(255,255,255,.2)}.none{font-size:13px;color:rgba(255,255,255,.55);padding:4px 6px}';
   // Base element: setConfig/hass like a Lovelace card; renders only when its signature changes.
   function define(tag, render) {
     if (customElements.get(tag)) return;
@@ -475,14 +480,18 @@
   }
   define('sunyaad-appliances', function (H, c) {
     var cards = c.cards || [];
-    var ids = [], others = [];
-    cards.forEach(function (x) {
+    var ids = [], others = [], groups = null;
+    if (Array.isArray(c.rooms) && c.rooms.length) {
+      // One section per room (Bedrooms): each room's plugs under its name.
+      groups = c.rooms.map(function (r) { return { name: r.name, ids: inArea(H, r.area, 'switch').filter(isPlug(H)) }; });
+      groups.forEach(function (g) { g.ids.forEach(function (e) { ids.push(e); }); });
+    } else cards.forEach(function (x) {
       var e = x && (x.entity || (x.variables && x.variables.entity));
       if (e && /^switch\./.test(e) && H.states[e]) { if (ids.indexOf(e) < 0) ids.push(e); } else others.push(x);
     });
     var pr = price(), apps = ids.map(function (e, i) { return appliance(H, e, i); });
     var totalW = 0, totalKwh = null, sig = [];
-    var body = apps.map(function (p) {
+    var cardOf = function (p) {
       var w = watts(H, p.power), today = change(H, p.energy, 'day'), month = change(H, p.energy, 'month'), hist = history(H, p.power);
       if (w != null && p.on) totalW += w;
       if (today != null) totalKwh = (totalKwh || 0) + today;
@@ -505,11 +514,14 @@
         (p.power ? '<div class="now">' + esc(w == null ? '–' : fmtW(p.on ? w : 0)) + ' <small>' + esc(active ? tr('drawing now') : p.on ? tr('idle draw') : tr('off')) + '</small></div>' : '') +
         (sp ? '<svg class="sp" viewBox="0 0 300 56" preserveAspectRatio="none"><path d="' + sp.area + '" fill="rgba(var(--c),.18)"/><path d="' + sp.line + '" fill="none" stroke="rgb(var(--c))" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>' : '') +
         (stats ? '<div class="stats">' + stats + '</div>' : '') + '</div>';
-    }).join('');
+    };
+    var body = groups
+      ? groups.map(function (g) { return '<div class="gh">' + esc(g.name) + '</div>' + (g.ids.length ? '<div class="list">' + g.ids.map(function (e) { return cardOf(apps[ids.indexOf(e)]); }).join('') + '</div>' : '<div class="none">' + esc(tr('No appliances here')) + '</div>'); }).join('')
+      : (apps.length ? '<div class="list">' + apps.map(cardOf).join('') + '</div>' : '');
     var head = apps.length ? '<div class="sum"><div><div class="l">' + esc(tr('Drawing now')) + '</div><div class="v">' + esc(fmtW(totalW)) + '</div></div>' +
       (totalKwh != null ? '<div><div class="l">' + esc(tr('Today')) + '</div><div class="v">' + esc(fmtKwh(totalKwh)) + '</div></div>' : '') +
       (totalKwh != null && pr != null ? '<div><div class="l">' + esc(tr('Cost today')) + '</div><div class="v">' + esc(money(H, totalKwh * pr)) + '</div></div>' : '') + '</div>' : '';
-    var html = '<div class="wrap">' + head + (body ? '<div class="list">' + body + '</div>' : '') + (others.length ? '<div class="others"></div>' : '') + '</div>';
+    var html = '<div class="wrap">' + head + body + (others.length ? '<div class="others"></div>' : '') + '</div>';
     return {
       sig: sig.join('|') + '|' + others.length + '|' + pr, html: html,
       css: '.wrap{display:grid;gap:10px}.sum{display:flex;gap:22px;flex-wrap:wrap;padding:2px 4px}.sum .l{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;color:rgba(255,255,255,.55)}.sum .v{font-size:18px;font-weight:800}' +
@@ -524,7 +536,7 @@
         '.sp{display:block;width:100%;height:34px;margin:4px 0 6px}' +
         '.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:6px}.sb{border-radius:11px;background:rgba(0,0,0,.18);padding:6px 9px}' +
         '.sb .l{font-size:10.5px;color:rgba(255,255,255,.55)}.sb .v{font-size:13.5px;font-weight:750}.sb .s{font-size:10.5px;color:rgba(255,255,255,.55)}' +
-        '.others{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}' +
+        '.others{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}' + GH_CSS +
         '@media (max-width:560px){.list{grid-template-columns:1fr}}',
       bind: function (root) {
         var self = this;
@@ -541,6 +553,123 @@
       },
     };
   });
+
+  // ── Lights ──────────────────────────────────────────────────────────────────────────────
+  // config: { rooms: [{name, area}] } (a section per room, each with All on / All off) or { entities: [...] }.
+  define('sunyaad-lights', function (H, c) {
+    var groups = Array.isArray(c.rooms) && c.rooms.length
+      ? c.rooms.map(function (r) { return { name: r.name, ids: inArea(H, r.area, 'light').filter(function (e) { return !(H.states[e].attributes || {}).entity_id; }) }; })
+      : [{ name: '', ids: (c.entities || []).filter(function (e) { return H.states[e]; }) }];
+    var sig = [];
+    var card = function (e) {
+      var st = H.states[e], a = st.attributes || {}, on = st.state === 'on', un = st.state === 'unavailable';
+      var dim = (a.supported_color_modes || []).some(function (m) { return m !== 'onoff'; });
+      var pct = on && a.brightness != null ? Math.round(a.brightness / 2.55) : 0;
+      var rgb = on && Array.isArray(a.rgb_color) ? a.rgb_color.join(',') : '255,205,110';
+      sig.push(e, st.state, pct, rgb);
+      return '<div class="lc' + (on ? ' on' : '') + '" style="--c:' + rgb + '">' +
+        '<div class="row"><button class="ic" data-t="' + esc(e) + '"' + (un ? ' disabled' : '') + '><ha-icon icon="' + esc(a.icon || (on ? 'mdi:lightbulb-on' : 'mdi:lightbulb-outline')) + '"></ha-icon></button>' +
+        '<div class="nm"><b>' + esc(friendly(H, e)) + '</b><span>' + esc(un ? tr('Unavailable') : on ? (dim ? pct + '%' : tr('On')) : tr('Off')) + '</span></div>' +
+        '<button class="tg' + (on ? ' on' : '') + '" data-t="' + esc(e) + '"' + (un ? ' disabled' : '') + '></button></div>' +
+        (dim && !un ? '<input class="br" type="range" min="1" max="100" value="' + (pct || 1) + '" data-b="' + esc(e) + '" style="--p:' + (pct || 0) + '%">' : '') + '</div>';
+    };
+    var body = groups.map(function (g) {
+      var on = g.ids.filter(function (e) { return H.states[e].state === 'on'; }).length;
+      return (g.name ? '<div class="gh"><span>' + esc(g.name) + ' <em>' + (on ? on + ' ' + esc(tr('on')) : esc(tr('All off'))) + '</em></span>' +
+          (g.ids.length ? '<span class="all"><button data-all="on" data-ids="' + esc(g.ids.join(',')) + '">' + esc(tr('All on')) + '</button><button data-all="off" data-ids="' + esc(g.ids.join(',')) + '">' + esc(tr('All off')) + '</button></span>' : '') + '</div>' : '') +
+        (g.ids.length ? '<div class="list">' + g.ids.map(card).join('') + '</div>' : '<div class="none">' + esc(tr('No lights here')) + '</div>');
+    }).join('');
+    return {
+      sig: sig.join('|'), html: '<div class="wrap">' + body + '</div>',
+      css: '.wrap{display:grid;gap:10px;min-width:min(520px,82vw)}.list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}' +
+        '.lc{border-radius:18px;padding:12px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);transition:background .3s}' +
+        '.lc.on{background:linear-gradient(160deg,rgba(var(--c),.22),rgba(255,255,255,.05))}' +
+        '.row{display:flex;align-items:center;gap:10px}.ic{width:36px;height:36px;flex:0 0 auto;border:0;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);cursor:pointer}' +
+        '.on .ic{background:rgba(var(--c),.9);color:#2a2116;box-shadow:0 0 18px rgba(var(--c),.55)}.ic ha-icon{--mdc-icon-size:19px}' +
+        '.nm{flex:1;min-width:0}.nm b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.nm span{font-size:12px;color:rgba(255,255,255,.65)}' +
+        '.tg{flex:0 0 auto;width:42px;height:24px;border:0;border-radius:12px;background:rgba(255,255,255,.18);position:relative;cursor:pointer;transition:background .2s}' +
+        '.tg::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s}.tg.on{background:rgb(var(--c))}.tg.on::after{left:21px}' +
+        '.br{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:5px;margin:12px 0 2px;background:linear-gradient(90deg,rgba(var(--c),.95) var(--p),rgba(255,255,255,.14) var(--p));outline:none}' +
+        '.br::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer}' + GH_CSS,
+      bind: function (root) {
+        var self = this;
+        root.querySelectorAll('[data-t]').forEach(function (b) { b.addEventListener('click', function () { self._h.callService('light', 'toggle', { entity_id: b.dataset.t }); }); });
+        root.querySelectorAll('[data-b]').forEach(function (r) {
+          r.addEventListener('input', function () { r.style.setProperty('--p', r.value + '%'); });
+          r.addEventListener('change', function () { self._h.callService('light', 'turn_on', { entity_id: r.dataset.b, brightness_pct: +r.value }); });
+        });
+        root.querySelectorAll('[data-all]').forEach(function (b) {
+          b.addEventListener('click', function () { self._h.callService('light', b.dataset.all === 'on' ? 'turn_on' : 'turn_off', { entity_id: b.dataset.ids.split(',') }); });
+        });
+      },
+    };
+  });
+
+  // ── One room in a pop-up (Bedrooms → Master Bedroom, Guest Room) ─────────────────────────
+  // Lights and appliances in Sunyaad's cards, the AC, media and sensors as Casora tiles.
+  if (!customElements.get('sunyaad-room')) customElements.define('sunyaad-room', class extends HTMLElement {
+    setConfig(c) { this._c = c || {}; this._built = null; }
+    getCardSize() { return 8; }
+    set hass(h) {
+      this._h = h;
+      var c = this._c || {}, area = c.area;
+      var sec = roomSections(h, area);
+      var key = Object.keys(sec).map(function (k) { return k + sec[k].length; }).join('|');
+      if (key !== this._built) this._build(sec, key);
+      (this._kids || []).forEach(function (k) { k.hass = h; });
+    }
+    _build(sec, key) {
+      this._built = key;
+      if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+      var root = this.shadowRoot, c = this._c || {}, self = this;
+      root.innerHTML = '<style>:host{display:block;color:#fff}:host>div{transform:translateZ(0)}.wrap{display:grid;gap:14px;min-width:min(560px,84vw)}' + GH_CSS + '</style><div class="wrap"></div>';
+      var wrap = root.querySelector('.wrap');
+      this._kids = [];
+      var add = function (title, el) { var h = document.createElement('div'); h.className = 'gh'; h.innerHTML = '<span>' + esc(tr(title)) + '</span>'; wrap.appendChild(h); wrap.appendChild(el); el.hass = self._h; self._kids.push(el); };
+      var mk = function (tag, cfg) { var el = document.createElement(tag); if (el.setConfig) el.setConfig(cfg); else el._c = cfg; return el; };
+      var tiles = function (ids, tpl) { return ids.map(function (e) { return { type: 'custom:button-card', template: typeof tpl === 'function' ? tpl(e) : tpl, entity: e }; }); };
+      if (sec.lights.length) add('Lights', mk('sunyaad-lights', { entities: sec.lights }));
+      if (sec.climate.length) add('Climate', mk('casora-group-list', { cards: tiles(sec.climate, function (e) { return e.indexOf('fan.') === 0 ? 'casora_fan' : 'casora_thermostat'; }) }));
+      if (sec.plugs.length) add('Appliances', mk('sunyaad-appliances', { cards: tiles(sec.plugs, 'casora_switch') }));
+      if (sec.media.length) add('Entertainment', mk('casora-group-list', { cards: tiles(sec.media, 'casora_media') }));
+      if (sec.sensors.length) add('Sensors', mk('casora-group-list', { cards: tiles(sec.sensors, function (e) { return /occupancy|presence|motion/.test(dclass(self._h, e) || '') ? 'casora_motion' : 'casora_entity'; }) }));
+      if (!wrap.children.length) wrap.innerHTML = '<div class="none">' + esc(tr('Nothing in this room yet.')) + '</div>';
+    }
+  });
+
+  // Entities of an area (directly or through their device), visible ones only.
+  function inArea(H, area, domain) {
+    if (!area) return [];
+    var R = H.entities || {}, D = H.devices || {};
+    return Object.keys(H.states).filter(function (e) {
+      if (domain && e.indexOf(domain + '.') !== 0) return false;
+      var r = R[e]; if (!r || r.hidden || r.entity_category) return false;
+      return (r.area_id || (D[r.device_id] || {}).area_id) === area && H.states[e].state !== 'unavailable';
+    });
+  }
+  // A plug's main switch has no name of its own ("Metering only mode" and the like do).
+  function isPlug(H) { return function (e) { var r = (H.entities || {})[e]; return r && !r.name; }; }
+  var SENSOR_CLASSES = /^(occupancy|presence|motion|door|window|opening|moisture|smoke|gas|temperature|humidity)$/;
+  function roomSections(H, area) {
+    var all = inArea(H, area);
+    var climateDevs = {};
+    all.forEach(function (e) { if (e.indexOf('climate.') === 0) { var r = (H.entities || {})[e]; if (r && r.device_id) climateDevs[r.device_id] = 1; } });
+    var seen = {};
+    return {
+      lights: all.filter(function (e) { return e.indexOf('light.') === 0 && !(H.states[e].attributes || {}).entity_id; }),
+      climate: all.filter(function (e) { return e.indexOf('climate.') === 0 || e.indexOf('fan.') === 0; }),
+      plugs: all.filter(function (e) { return e.indexOf('switch.') === 0; }).filter(isPlug(H)),
+      media: all.filter(function (e) { return e.indexOf('media_player.') === 0; }),
+      sensors: all.filter(function (e) {
+        var d = e.split('.')[0], dc = dclass(H, e) || '';
+        if (d === 'binary_sensor') return SENSOR_CLASSES.test(dc);
+        if (d === 'sensor' && (dc === 'temperature' || dc === 'humidity') && !climateDevs[((H.entities || {})[e] || {}).device_id] && !seen[dc]) { seen[dc] = 1; return true; }
+        return false;
+      }),
+    };
+  }
+  window.sunyaadRoomSections = roomSections;
+  window.sunyaadInArea = inArea;
 
   // Open a panel in Casora's pop-up (banner, energy flow → battery).
   window.sunyaadOpen = function (what, opts) {

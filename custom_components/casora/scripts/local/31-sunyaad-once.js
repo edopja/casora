@@ -15,6 +15,7 @@
     if (!H.user || !H.user.is_admin) return;
     if (!H.states['cover.ed_gate'] || !H.states['sensor.deye_battery_soc']) return;
     try { localStorage.setItem(FLAG, '1'); } catch (e) { return; }
+    window._sunyaadPhotosRunning = true;
     var names = {};
     for (var i = 0; i < PHOTOS.length; i++) {
       var p = PHOTOS[i];
@@ -38,6 +39,7 @@
       });
       await H.callWS({ type: 'lovelace/config/save', url_path: url, config: cfg });
     }
+    window._sunyaadPhotosRunning = false;
     console.info('[sunyaad] photos set:', changed);
     if (changed) setTimeout(function () { location.reload(); }, 800);
   }
