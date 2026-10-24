@@ -40,8 +40,15 @@
   // wieder, die Muster (reguläre Ausdrücke) liefen sonst jedes Mal für jeden Text durch.
   let memo = null;
 
-  // Übersetzung für einen sichtbaren Text, oder null, wenn keine vorliegt.
+  // Fork: the product is called Sunyaad on screen (theme names "Casora Glas/Nebel/…" stay, they are setting values).
+  const BRAND = /\bCasora\b(?! (Glas|Nebel|Weich|Standard|Glass))/g;
   function tr(text) {
+    const r = trBase(text);
+    const out = (r == null ? text : r).replace(BRAND, "Sunyaad");
+    return out === text ? null : out;
+  }
+  // Übersetzung für einen sichtbaren Text, oder null, wenn keine vorliegt.
+  function trBase(text) {
     const key = text.trim();
     if (!key || !/[A-Za-z]{2}/.test(key)) return null;
     const t = table();

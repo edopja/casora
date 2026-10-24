@@ -1,6 +1,6 @@
 {
   "domain": "casora",
-  "name": "Casora",
+  "name": "Sunyaad",
   "after_dependencies": [
     "ai_task",
     "energy",

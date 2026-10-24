@@ -55,7 +55,7 @@ LEGACY_USER_ASSETS_DIR = "www/hemma"
 
 # The panel keeps the url it was given in 2.0.5; only its title changed.
 PANEL_URL = "casora-studio"
-PANEL_TITLE = "Casora Studio"
+PANEL_TITLE = "Sunyaad Studio"
 PANEL_ICON = "mdi:view-dashboard-edit"
 
 # Registered at /casora before the rename, so setup removes the old one.

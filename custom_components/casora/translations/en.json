@@ -2,19 +2,19 @@
   "config": {
     "step": {
       "user": {
-        "title": "Casora",
-        "description": "Adds the Casora configuration panel to the sidebar."
+        "title": "Sunyaad",
+        "description": "Adds the Sunyaad configuration panel to the sidebar."
       }
     },
     "abort": {
-      "already_configured": "Casora is already set up."
+      "already_configured": "Sunyaad is already set up."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Casora – Settings",
-        "description": "Leave fields empty to let Casora choose: the default AI from Settings → AI tasks and outdoor sensors by name.",
+        "title": "Sunyaad – Settings",
+        "description": "Leave fields empty to let Sunyaad choose: the default AI from Settings → AI tasks and outdoor sensors by name.",
         "data": {
           "ai_task_entity": "AI for coaches, cameras and plants",
           "ai_task_web_entity": "AI with web search (update check, recipe)",
@@ -30,7 +30,7 @@
           "ki_plan_update": "Update check",
           "lueften_push": "Send ventilation push to",
           "lueften_personen": "Only notify when at home",
-          "update_push": "Notify about new Casora versions",
+          "update_push": "Notify about new Sunyaad versions",
           "beta_updates": "Beta versions"
         },
         "data_description": {
@@ -42,7 +42,7 @@
           "ki_plan_update": "Daily: once a day. Off: no AI assessment in the updates popup.",
           "lueften_push": "“Ventilate now” (7–22 h) and “Close window” (7–23 h) after 10 min, CO₂ above 2500 ppm right away. Empty = no push notifications.",
           "lueften_personen": "“Ventilate now” only when one of these people is home. Empty = anyone.",
-          "update_push": "One push per new version to the selected phones. Tapping it opens Casora's updates. Empty = off.",
+          "update_push": "One push per new version to the selected phones. Tapping it opens Sunyaad's updates. Empty = off.",
           "beta_updates": "Try new features earlier. Betas can have bugs. With HACS, turn on betas in HACS instead."
         }
       }
@@ -179,8 +179,8 @@
       "fields": {}
     },
     "umstellen": {
-      "name": "Switch to Casora names",
-      "description": "Converts older dashboards to Casora names (with backup).",
+      "name": "Switch to Sunyaad names",
+      "description": "Converts older dashboards to Sunyaad names (with backup).",
       "fields": {
         "probelauf": {
           "name": "Only count, change nothing",
@@ -190,11 +190,11 @@
     },
     "einrichten": {
       "name": "Set up",
-      "description": "Creates missing Casora helpers and scripts (runs automatically at startup) and reports anything it could not create."
+      "description": "Creates missing Sunyaad helpers and scripts (runs automatically at startup) and reports anything it could not create."
     },
     "set_timer": {
       "name": "Set timer",
-      "description": "Turns an entity off or on after a number of minutes. Replaces an existing timer for the same entity. When the timer ends, Casora fires the event casora_timer_finished (entity_id, action, reason: expired, manual or cancelled). Can respond with entity_id, at and start.",
+      "description": "Turns an entity off or on after a number of minutes. Replaces an existing timer for the same entity. When the timer ends, Sunyaad fires the event casora_timer_finished (entity_id, action, reason: expired, manual or cancelled). Can respond with entity_id, at and start.",
       "fields": {
         "entity_id": {
           "name": "Entity",
@@ -224,55 +224,55 @@
   "entity": {
     "sensor": {
       "media_paused": {
-        "name": "Casora Media paused"
+        "name": "Sunyaad Media paused"
       },
       "lueften": {
-        "name": "Casora Ventilation"
+        "name": "Sunyaad Ventilation"
       },
       "energie": {
-        "name": "Casora Energy coach"
+        "name": "Sunyaad Energy coach"
       },
       "heizung": {
-        "name": "Casora Heating coach"
+        "name": "Sunyaad Heating coach"
       },
       "lueftung": {
-        "name": "Casora Ventilation coach"
+        "name": "Sunyaad Ventilation coach"
       },
       "rezept": {
-        "name": "Casora Recipe of the week"
+        "name": "Sunyaad Recipe of the week"
       },
       "kamera": {
-        "name": "Casora Camera AI"
+        "name": "Sunyaad Camera AI"
       },
       "pflanzen": {
-        "name": "Casora Plant AI"
+        "name": "Sunyaad Plant AI"
       },
       "update": {
-        "name": "Casora Update AI analysis"
+        "name": "Sunyaad Update AI analysis"
       },
       "aquarium": {
-        "name": "Casora Aquarium AI"
+        "name": "Sunyaad Aquarium AI"
       },
       "ebike": {
-        "name": "Casora E-bike AI"
+        "name": "Sunyaad E-bike AI"
       },
       "timers": {
-        "name": "Casora Timers"
+        "name": "Sunyaad Timers"
       }
     },
     "binary_sensor": {
       "lueften_hinweis": {
-        "name": "Casora Ventilation hint"
+        "name": "Sunyaad Ventilation hint"
       },
       "solar_tipp": {
-        "name": "Casora Solar tip"
+        "name": "Sunyaad Solar tip"
       }
     }
   },
   "issues": {
     "restart_after_update": {
-      "title": "Casora {version} installed – restart required",
-      "description": "Casora was updated to version {version}. Restart Home Assistant to load it."
+      "title": "Sunyaad {version} installed – restart required",
+      "description": "Sunyaad was updated to version {version}. Restart Home Assistant to load it."
     }
   },
   "exceptions": {
