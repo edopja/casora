@@ -1006,9 +1006,9 @@ window.casoraHaptic = window.casoraHaptic || function (kind) {
     if (special) return special;
     if (gateOpen && (m >= 1200 || m < 300)) return W('Heads up, {w}: the gate is open 🚪');
     if (storm && awake) return W('Thunder out there, {w}. Stay safe ⛈️');
-    if (wx === 'pouring' && awake) return W("It's pouring, {w}. Walk with an umbrella ☔");
-    if (rain && justHome) return W('Welcome home, {w}. Dry off ☔');
-    if (rain && awake) return W(["It's raining, {w}. Walk with an umbrella ☔", 'Rain a fall, {w}. Grab your umbrella ☔', 'Wet one out there, {w}. Umbrella time ☔'][pick % 3]);
+    if (wx === 'pouring' && awake) return W("It's pouring, {w}. Walk with an umbrella");
+    if (rain && justHome) return W('Welcome home, {w}. Dry off');
+    if (rain && awake) return W(["It's raining, {w}. Walk with an umbrella", 'Rain a fall, {w}. Grab your umbrella', 'Wet one out there, {w}. Umbrella time'][pick % 3]);
     if (rain) return W('Rainy night, {w}. Good sleeping weather 🌧️');
     if (justHome && m >= 300) return W('Welcome home, {w} 🏡');
     return W(pool[pick % pool.length]);
