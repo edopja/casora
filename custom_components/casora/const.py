@@ -6,7 +6,7 @@ from pathlib import Path
 DOMAIN = "casora"
 # Casoras öffentliches Repo – Updates und Karten-Updates kommen anonym aus dessen
 # Releases (update_source.py).
-UPDATE_REPO = "SH1FT-W/casora"
+UPDATE_REPO = "edopja/casora"  # Sunyaad fork: never offer upstream Casora over it
 
 # manifest.json is the single source of truth: HACS reads it.
 VERSION = json.loads(
