@@ -2365,6 +2365,83 @@ customElements.define('casora-smart-row', CasoraSections);
     }
     return out;
   }
+  // A room page: only what is in that room (its Home Assistant area, and the devices its header names).
+  function roomArea(H, vars) {
+    const ids = [];
+    Object.values(vars || {}).forEach((v) => (Array.isArray(v) ? v : [v]).forEach((x) => { if (typeof x === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(x) && H.states[x]) ids.push(x); }));
+    const n = {};
+    ids.forEach((e) => { const r = (H.entities || {})[e]; const a = r && (r.area_id || ((H.devices || {})[r.device_id] || {}).area_id); if (a) n[a] = (n[a] || 0) + 1; });
+    return { area: Object.keys(n).sort((a, b) => n[b] - n[a])[0] || null, ids };
+  }
+  function roomSegments(H, vars) {
+    const S = H.states, R = H.entities || {}, D = H.devices || {}, out = [];
+    const { area, ids } = roomArea(H, vars);
+    const inRoom = (e) => { const r = R[e]; if (r && (r.hidden || r.entity_category)) return false; const a = r && (r.area_id || (D[r.device_id] || {}).area_id); return (area && a === area) || ids.indexOf(e) >= 0; };
+    const all = Object.keys(S).filter((e) => inRoom(e) && S[e].state !== 'unavailable');
+    const dc = (e) => (S[e].attributes || {}).device_class;
+    const tile = (tpl, e) => ({ type: 'custom:button-card', template: tpl, entity: e });
+    // Lights (no light groups)
+    const lights = all.filter((e) => e.startsWith('light.') && !(S[e].attributes || {}).entity_id);
+    if (lights.length) {
+      const on = lights.filter((e) => S[e].state === 'on').length;
+      out.push({ key: 'lights', label: 'Lights', icon: on ? 'mdi:lightbulb-on-outline' : 'mdi:lightbulb-outline', c: '255,205,110', value: on ? on + ' on' : 'All off', popup: lights.map((e) => tile('casora_light', e)) });
+    }
+    // Climate
+    const cl = all.filter((e) => e.startsWith('climate.') || e.startsWith('fan.'));
+    const temp = all.find((e) => e.startsWith('sensor.') && dc(e) === 'temperature');
+    if (cl.length) {
+      const c0 = cl.find((e) => e.startsWith('climate.')), a = c0 ? S[c0].attributes || {} : {};
+      const t = a.current_temperature != null ? a.current_temperature : (temp ? parseFloat(S[temp].state) : null);
+      const running = cl.filter((e) => S[e].state !== 'off').length;
+      out.push({ key: 'climate', label: 'Climate', icon: 'mdi:air-conditioner', c: '100,210,255',
+        value: (t != null && !isNaN(t) ? Math.round(t) + '°' : '') + (running ? (t != null ? ' · ' : '') + (c0 && S[c0].state !== 'off' && a.temperature != null ? 'set ' + a.temperature + '°' : running + ' on') : (t != null ? ' · Off' : 'Off')),
+        popup: cl.map((e) => tile(e.startsWith('fan.') ? 'casora_fan' : 'casora_thermostat', e)) });
+    } else if (temp) {
+      out.push({ key: 'temp', label: 'Temperature', icon: 'mdi:thermometer', c: '100,210,255', value: Math.round(parseFloat(S[temp].state)) + '°', popup: [tile('casora_entity', temp)] });
+    }
+    // Appliances: plugs (a device's main switch) with their power
+    const sw = all.filter((e) => e.startsWith('switch.') && !(R[e] || {}).name);
+    if (sw.length) {
+      let w = 0, hasW = false;
+      sw.forEach((e) => { if (S[e].state !== 'on') return; const d = (R[e] || {}).device_id; const p = d && Object.keys(S).find((x) => x.startsWith('sensor.') && (R[x] || {}).device_id === d && dc(x) === 'power'); if (p && !isNaN(parseFloat(S[p].state))) { w += parseFloat(S[p].state); hasW = true; } });
+      const on = sw.filter((e) => S[e].state === 'on').length;
+      out.push({ key: 'appliances', label: 'Appliances', icon: 'mdi:power-plug-outline', c: '150,170,255', value: hasW ? kw(w) : on ? on + ' on' : 'Off',
+        content: { type: 'custom:sunyaad-appliances', cards: sw.map((e) => tile('casora_switch', e)) } });
+    }
+    // Media
+    const mp = all.filter((e) => e.startsWith('media_player.'));
+    if (mp.length) {
+      const play = mp.filter((e) => S[e].state === 'playing');
+      const on = mp.filter((e) => ['on', 'playing', 'paused', 'idle'].indexOf(S[e].state) >= 0);
+      out.push({ key: 'media', label: 'Media', icon: 'mdi:television-play', c: '240,130,170',
+        value: play.length ? ((S[play[0]].attributes || {}).media_title || 'Playing') : on.length ? on.length + ' on' : 'Off', popup: mp.map((e) => tile('casora_media', e)) });
+    }
+    // Presence
+    const occ = all.filter((e) => e.startsWith('binary_sensor.') && ['occupancy', 'presence', 'motion'].indexOf(dc(e)) >= 0);
+    if (occ.length) {
+      const here = occ.some((e) => S[e].state === 'on');
+      out.push({ key: 'occupied', label: here ? 'Occupied' : 'Empty', icon: here ? 'mdi:account' : 'mdi:account-outline', c: '190,160,255', value: here ? 'Someone here' : 'No one', popup: occ.map((e) => tile('casora_motion', e)) });
+    }
+    // Doors, windows, locks
+    const open = all.filter((e) => (e.startsWith('binary_sensor.') && ['door', 'window', 'opening', 'garage_door'].indexOf(dc(e)) >= 0) || e.startsWith('lock.'));
+    if (open.length) {
+      const o = open.filter((e) => S[e].state === 'on' || S[e].state === 'unlocked').length;
+      out.push({ key: 'security', label: 'Doors', icon: o ? 'mdi:door-open' : 'mdi:door-closed-lock', c: '80,200,200', value: o ? o + ' open' : 'Closed',
+        popup: open.map((e) => tile(e.startsWith('lock.') ? 'casora_lock' : 'casora_entity', e)) });
+    }
+    // Gate / covers in this area
+    const cov = all.filter((e) => e.startsWith('cover.'));
+    cov.filter((e) => dc(e) === 'gate').forEach((e) => out.push({ key: 'gate', label: 'Gate', icon: S[e].state === 'closed' ? 'mdi:gate' : 'mdi:gate-open', c: '160,180,255', value: tr(S[e].state.charAt(0).toUpperCase() + S[e].state.slice(1)), open: 'gate', entities: [e] }));
+    const blinds = cov.filter((e) => dc(e) !== 'gate');
+    if (blinds.length) out.push({ key: 'covers', label: 'Blinds', icon: 'mdi:blinds', c: '200,180,140', value: blinds.filter((e) => S[e].state === 'open').length + ' open', popup: blinds.map((e) => tile('casora_cover', e)) });
+    // Room power (the room's energy sensors from the Studio)
+    const en = [].concat(vars.energy_entities || [], vars.energy_power_entity || []).filter((e) => typeof e === 'string' && S[e]);
+    if (en.length) {
+      let w = 0; en.forEach((e) => { const v = parseFloat(S[e].state); if (!isNaN(v)) w += /^kW$/i.test((S[e].attributes || {}).unit_of_measurement || '') ? v * 1000 : v; });
+      out.push({ key: 'power', label: 'Power', icon: 'mdi:lightning-bolt', c: '255,190,90', value: kw(w), popup: en.map((e) => tile('casora_entity', e)) });
+    }
+    return out;
+  }
   const CSS = `
     :host { display: block; }
     .bn { display: inline-flex; align-items: stretch; max-width: 100%; overflow-x: auto; scrollbar-width: none; padding: 5px; border-radius: 24px;
@@ -2385,7 +2462,10 @@ customElements.define('casora-smart-row', CasoraSections);
     constructor() { super(); this.attachShadow({ mode: 'open' }); this._sig = ''; }
     update(H, vars, room) {
       this._room = room; this._vars = vars;
-      const segs = segments(H, vars); this._segs = segs;
+      const segs = room && room._sunyaadScope === 'room' ? roomSegments(H, room._config.variables || {}) : segments(H, vars);
+      this._segs = segs;
+      if (!segs.length) { this.style.display = 'none'; this._sig = ''; return; }
+      this.style.display = '';
       const sig = segs.map((x) => x.key + x.value).join('|');
       if (sig === this._sig) return; this._sig = sig;
       this.shadowRoot.innerHTML = `<style>${CSS}</style><div class="bn">${segs.map((x, i) => `
@@ -2395,6 +2475,10 @@ customElements.define('casora-smart-row', CasoraSections);
     }
     _tap(seg) {
       if (seg.open && window.sunyaadOpen && window.sunyaadOpen(seg.open, { entities: seg.entities, title: seg.label, src: this })) return;
+      if (seg.content && window.casoraPopup) {
+        window.casoraPopup.open({ title: tr(seg.label), content: seg.content, dismissable: true, dismiss_on_background: true, src: this });
+        return;
+      }
       if (seg.popup && window.casoraPopup) {
         window.casoraPopup.open({ title: tr(seg.label), content: { type: 'custom:casora-group-list', cards: seg.popup }, dismissable: true, dismiss_on_background: true, src: this });
         return;
@@ -2466,6 +2550,7 @@ customElements.define('casora-smart-row', CasoraSections);
       }
       let bn = box.querySelector(':scope > sunyaad-banner');
       if (!bn) { bn = document.createElement('sunyaad-banner'); box.insertBefore(bn, box.firstChild); }
+      room._sunyaadScope = onHome ? 'home' : 'room';
       bn.update(H, hv, room);
     });
   }
