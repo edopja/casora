@@ -2059,6 +2059,37 @@ class CasoraGroupList extends HTMLElement {
   }
 }
 
+// Group tiles about 40% smaller than Casora's (desktop and tablet; the phone has its own dashboard).
+const CS_HOST_CSS = `
+  :host {
+    display: block;
+    --casora-entity-height-current: calc(var(--casora-entity-height-desktop, 180px) * 0.6);
+    --casora-entity-col-width-current: calc(var(--casora-entity-col-width-desktop, 280px) * 0.6);
+    --casora-entity-inner-pad-current: 14px;
+    --casora-entity-name-font-current: 15px;
+    --casora-entity-state-font-current: 12.5px;
+    --casora-entity-icon-size-current: 28px;
+  }
+  @media (min-width: 768px) and (max-width: 1600px) and (min-height: 501px) and (hover: none) and (pointer: coarse) {
+    :host {
+      --casora-entity-height-current: calc(var(--casora-entity-height-tablet, 150px) * 0.6);
+      --casora-entity-col-width-current: calc(var(--casora-entity-col-width-tablet, 210px) * 0.6);
+      --casora-entity-inner-pad-current: 12px;
+      --casora-entity-name-font-current: 14px;
+    }
+  }
+`;
+// Inside each tile: no white "on" overlay, text and icon keep the off colours.
+const CS_TILE_GLASS = `
+  ha-card {
+    --casora-active-overlay-opacity: 0 !important;
+    --casora-entity-name-active: var(--casora-entity-name, rgba(255, 255, 255, 0.9)) !important;
+    --casora-entity-state-active: var(--casora-entity-state, rgba(255, 255, 255, 0.7)) !important;
+    --casora-entity-state-active-color: var(--casora-entity-state, rgba(255, 255, 255, 0.7)) !important;
+  }
+  ha-card::after { opacity: 0 !important; }
+`;
+
 class CasoraSections extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: 'open' }); this._sig = null; }
   static getConfigElement() { return document.createElement('div'); }
@@ -2074,10 +2105,30 @@ class CasoraSections extends HTMLElement {
 
   _rowEl() {
     if (!this._row) {
+      const st = document.createElement('style');
+      st.textContent = CS_HOST_CSS;
+      this.shadowRoot.appendChild(st);
       this._row = document.createElement('casora-smart-row-classic');
       this.shadowRoot.appendChild(this._row);
     }
     return this._row;
+  }
+  // Every tile stays frosted glass (like an off tile), even when its devices are on.
+  _glass() {
+    const root = this._row && this._row.shadowRoot;
+    if (!root) return;
+    const walk = (node, depth) => {
+      if (!node || depth > 6) return;
+      node.querySelectorAll('*').forEach((el) => {
+        if (el.tagName === 'BUTTON-CARD') {
+          const sr = el.shadowRoot;
+          if (sr && sr.querySelector('ha-card') && !sr.getElementById('casora-sections-glass')) {
+            const st = document.createElement('style'); st.id = 'casora-sections-glass'; st.textContent = CS_TILE_GLASS; sr.appendChild(st);
+          }
+        } else if (el.shadowRoot) walk(el.shadowRoot, depth + 1);
+      });
+    };
+    walk(root, 0);
   }
   _update() {
     if (!this._hass || !this._config) return;
@@ -2085,11 +2136,16 @@ class CasoraSections extends HTMLElement {
     let cfg = this._config;
     if (window.CASORA_SECTIONS !== false && !this._config.classic) {
       const g = this._grouped();
-      if (g) cfg = Object.assign({}, this._config, { cards: g.cards }), this._sigNow = g.sig;
+      if (g) cfg = Object.assign({}, this._config, { cards: g.cards, sort: false }), this._sigNow = g.sig;
     }
     const sig = cfg === this._config ? 'classic' : this._sigNow;
     if (sig !== this._sig) { this._sig = sig; row.setConfig(cfg); }
     row.hass = this._hass;
+    if (sig !== 'classic') {
+      this._glass();
+      clearTimeout(this._glassT);
+      this._glassT = setTimeout(() => this._glass(), 600);
+    }
   }
 
   _template(cfg) { const c = resolveCardConfig(cfg) || {}; return String(c.template && (Array.isArray(c.template) ? c.template[0] : c.template) || ''); }
