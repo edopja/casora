@@ -942,7 +942,10 @@ window.casoraHaptic = window.casoraHaptic || function (kind) {
       var a = S[e].attributes || {}; return (u && a.user_id === u.id) || (who && first(a.friendly_name).toLowerCase() === who.toLowerCase());
     })[0];
     var p = pid && S[pid];
-    var justHome = !!(p && p.state === 'home' && (n - new Date(p.last_changed)) < 1800000);
+    // A Home Assistant restart resets last_changed on everything; sun.sun only changes at sunrise/sunset,
+    // so if it changed within two minutes of the person it was a restart, not an arrival.
+    var sun = S['sun.sun'], restart = !!(p && sun && Math.abs(new Date(p.last_changed) - new Date(sun.last_changed)) < 120000);
+    var justHome = !!(p && p.state === 'home' && !restart && (n - new Date(p.last_changed)) < 1800000);
     var gate = one(v.casora_greeting_gate), gateOpen = ['open', 'opening', 'closing'].indexOf(st(gate)) >= 0;
     var day = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][dow];
     var pick = doy * 7 + Math.floor(n.getHours() / 2);
