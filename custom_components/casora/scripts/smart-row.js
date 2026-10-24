@@ -2351,7 +2351,7 @@ customElements.define('casora-smart-row', CasoraSections);
     if (gates.length) {
       const st = S[gates[0]].state;
       out.push({ key: 'gate', label: gates.length > 1 ? 'Gates' : 'Gate', icon: st === 'closed' ? 'mdi:gate' : 'mdi:gate-open', c: '160,180,255',
-        value: tr(st.charAt(0).toUpperCase() + st.slice(1)), popup: gates.map((e) => ({ type: 'custom:button-card', template: 'casora_cover', entity: e })) });
+        value: tr(st.charAt(0).toUpperCase() + st.slice(1)), popup: gates.map((e) => ({ type: 'custom:button-card', template: 'casora_cover', entity: e, name: (S[e].attributes || {}).friendly_name || 'Gate' })) });
     }
     return out;
   }
@@ -2399,7 +2399,9 @@ customElements.define('casora-smart-row', CasoraSections);
         return null;
       };
       const bc = find(box, 0);
-      if (bc && typeof bc._handleAction === 'function') bc._handleAction({ detail: { action: 'tap' } });
+      const card = bc && bc.shadowRoot && bc.shadowRoot.querySelector('ha-card');
+      // The same "action" event Home Assistant's tap handler fires on a tile.
+      if (card) card.dispatchEvent(new CustomEvent('action', { detail: { action: 'tap' }, bubbles: true, composed: true }));
     }
   }
   if (!customElements.get('sunyaad-banner')) customElements.define('sunyaad-banner', SunyaadBanner);

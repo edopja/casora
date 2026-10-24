@@ -882,6 +882,20 @@ window.casoraHaptic = window.casoraHaptic || function (kind) {
   // area: Rasterplatz erzwingen (button-card setzt grid-area eigener Felder selbst).
   window.casoraFitTitle = function (el, area) {
     if (!el || !el.isConnected) return;
+    // Fork: a two-part greeting ("It's raining, Edney. Walk with an umbrella") keeps the first part
+    // big and puts the advice on a smaller line underneath.
+    var sp = el.querySelector('span[data-no-i18n]');
+    if (sp && !sp._casoraSplit) {
+      var txt = sp.textContent || '', cut = txt.indexOf('. ');
+      if (cut > 0 && cut < txt.length - 2) {
+        sp._casoraSplit = true;
+        sp.textContent = txt.slice(0, cut);
+        var sub = document.createElement('span');
+        sub.textContent = txt.slice(cut + 2);
+        sub.style.cssText = 'display:block;font-size:0.42em;font-weight:500;letter-spacing:0;opacity:0.85;margin-top:0.15em;white-space:normal';
+        sp.appendChild(sub);
+      }
+    }
     if (area) el.style.setProperty('grid-area', area, 'important');
     // Größe aus der Vorlage merken – zurückgesetzt wird auf sie, nicht auf leer.
     if (el._casoraFs === undefined) el._casoraFs = el.style.fontSize || '';
