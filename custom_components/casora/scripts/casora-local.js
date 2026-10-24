@@ -93,6 +93,7 @@ const MODULES = [
   '30-sunyaad',
   '31-sunyaad-once',
   '32-sunyaad-bedrooms',
+  '33-sunyaad-master-media',
 ];
 
 const v = new URL(import.meta.url).searchParams.get('v') || String(Date.now());
