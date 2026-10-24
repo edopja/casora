@@ -107,9 +107,8 @@
     if (c && Date.now() - c.at < 300000) return c.v;
     if (!c || !c.busy) {
       statCache[k] = { at: c ? c.at : 0, v: c ? c.v : null, busy: true };
-      H.callWS({ type: 'recorder/statistic_during_period', statistic_id: id, types: ['change'], calendar: { period: period } }).then(function (r) {
+      H.callWS({ type: 'recorder/statistic_during_period', statistic_id: id, types: ['change'], calendar: { period: period }, units: { energy: 'kWh' } }).then(function (r) {
         var v = r && typeof r.change === 'number' ? r.change : null;
-        if (v != null && /^Wh$/i.test(unitOf(H, id))) v = v / 1000;
         statCache[k] = { at: Date.now(), v: v, busy: false };
       }, function () { statCache[k] = { at: Date.now(), v: null, busy: false }; });
     }
@@ -150,7 +149,8 @@
     return { line: d, area: d + ' L' + w + ' ' + h + ' L0 ' + h + ' Z' };
   }
 
-  var BASE_CSS = ':host{display:block;color:var(--primary-text-color,#fff);text-align:left}' +
+  // The top block gets its own layer: inside Casora's blurred pop-up, Chrome otherwise skips painting plain text.
+  var BASE_CSS = ':host{display:block;color:#fff;text-align:left}:host>:not(style){transform:translateZ(0)}' +
     '.blk{border-radius:20px;background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);padding:16px 18px;box-sizing:border-box}' +
     '.k{font-size:11px;font-weight:800;letter-spacing:1.8px;text-transform:uppercase}' +
     '.mut{color:rgba(255,255,255,.62)}' +
@@ -379,7 +379,8 @@
     if (!ids.length) return { sig: 'none', html: '<div class="blk mut">' + esc(tr('No gate found.')) + '</div>' };
     var sig = [], parts = ids.map(function (id) {
       var s = H.states[id], a = s.attributes || {}, f = a.supported_features || 0, st = s.state;
-      var sib = siblings(H, id).filter(function (e) { var r = reg(H, e); return !(r && (r.hidden || r.entity_category)); });
+      // Gate controllers file pedestrian/start buttons and keep-open switches under "config"; only diagnostics stay out.
+      var sib = siblings(H, id).filter(function (e) { var r = reg(H, e); return !(r && (r.hidden || r.entity_category === 'diagnostic')); });
       var btns = sib.filter(function (e) { return /^button\./.test(e); });
       var sws = sib.filter(function (e) { return /^switch\./.test(e); });
       var evs = sib.filter(function (e) { return /^event\./.test(e) && H.states[e].state && H.states[e].state !== 'unknown'; });
