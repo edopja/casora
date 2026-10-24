@@ -2466,7 +2466,7 @@ customElements.define('casora-smart-row', CasoraSections);
         content: { type: 'custom:sunyaad-appliances', cards: sw.map((e) => tile('casora_switch', e)) } });
     }
     // Media
-    const mp = all.filter((e) => e.startsWith('media_player.'));
+    const mp0 = all.filter((e) => e.startsWith('media_player.')), mp = window.sunyaadOneEach ? window.sunyaadOneEach(H, mp0) : mp0;
     if (mp.length) {
       const play = mp.filter((e) => S[e].state === 'playing');
       const on = mp.filter((e) => ['on', 'playing', 'paused', 'idle'].indexOf(S[e].state) >= 0);

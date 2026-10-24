@@ -683,7 +683,7 @@
       lights: all.filter(function (e) { return e.indexOf('light.') === 0 && !(H.states[e].attributes || {}).entity_id; }),
       climate: all.filter(function (e) { return e.indexOf('climate.') === 0 || e.indexOf('fan.') === 0; }),
       plugs: all.filter(function (e) { return e.indexOf('switch.') === 0; }).filter(isPlug(H)),
-      media: all.filter(function (e) { return e.indexOf('media_player.') === 0; }),
+      media: oneEach(H, all.filter(function (e) { return e.indexOf('media_player.') === 0; })),
       sensors: all.filter(function (e) {
         var d = e.split('.')[0], dc = dclass(H, e) || '';
         if (d === 'binary_sensor') return SENSOR_CLASSES.test(dc);
@@ -692,6 +692,17 @@
       }),
     };
   }
+  // One TV can show up as two media players (e.g. Cast and DLNA) with the same name: keep the one that can do most.
+  function oneEach(H, ids) {
+    var best = {};
+    ids.forEach(function (e) {
+      var a = H.states[e].attributes || {}, k = String(a.friendly_name || e).toLowerCase();
+      var f = a.supported_features || 0, n = 0; while (f) { n += f & 1; f >>>= 1; }
+      if (!best[k] || n > best[k].n) best[k] = { e: e, n: n };
+    });
+    return ids.filter(function (e) { var k = String((H.states[e].attributes || {}).friendly_name || e).toLowerCase(); return best[k].e === e; });
+  }
+  window.sunyaadOneEach = oneEach;
   window.sunyaadRoomSections = roomSections;
   window.sunyaadInArea = inArea;
 
