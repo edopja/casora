@@ -2245,6 +2245,14 @@ class CasoraSections extends HTMLElement {
       const on = lights.filter((e) => S[e].state === 'on').length;
       tile(tr('Lights'), 'light', on ? on + ' ' + tr('on') : tr('All off'), lights, { type: 'custom:sunyaad-lights', rooms });
     }
+    const climate = all('climate');
+    if (climate.length) {
+      const on = climate.filter((e) => S[e].state !== 'off');
+      const c0 = on.find((e) => e.startsWith('climate.'));
+      tile(tr('Climate'), 'thermostat', on.length ? (c0 && (S[c0].attributes || {}).temperature != null ? tr('AC') + ' ' + S[c0].attributes.temperature + '°' : on.length + ' ' + tr('on')) : tr('Off'), climate, {
+        type: 'custom:sunyaad-tiles',
+        sections: per.map((r) => ({ title: r.name, empty: 'No AC here', cards: r.sec.climate.map((e) => ({ type: 'custom:button-card', template: e.startsWith('fan.') ? 'casora_fan' : 'casora_thermostat', entity: e })) })) });
+    }
     const plugs = all('plugs');
     if (plugs.length) {
       const on = plugs.filter((e) => S[e].state === 'on').length;
@@ -2263,8 +2271,8 @@ class CasoraSections extends HTMLElement {
     if (sensors.length) {
       const occ = sensors.filter((e) => /occupancy|presence|motion/.test((S[e].attributes || {}).device_class || '') && S[e].state === 'on');
       tile(tr('Sensors'), 'motion', occ.length ? tr('Someone in') : tr('Clear'), sensors.filter((e) => e.startsWith('binary_sensor.')), {
-        type: 'custom:casora-group-list',
-        cards: sensors.map((e) => ({ type: 'custom:button-card', template: /occupancy|presence|motion/.test((S[e].attributes || {}).device_class || '') ? 'casora_motion' : 'casora_entity', entity: e })) });
+        type: 'custom:sunyaad-tiles',
+        sections: per.map((r) => ({ title: r.name, empty: 'No sensors here', cards: r.sec.sensors.map((e) => ({ type: 'custom:button-card', template: /occupancy|presence|motion/.test((S[e].attributes || {}).device_class || '') ? 'casora_motion' : 'casora_entity', entity: e })) })) });
     }
     return cards.length ? { cards, sig: 'm|' + sig.join('|') } : null;
   }

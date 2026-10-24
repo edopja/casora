@@ -637,6 +637,30 @@
     }
   });
 
+  // Casora tiles under section headings (Bedrooms → Climate, Sensors: one section per room).
+  if (!customElements.get('sunyaad-tiles')) customElements.define('sunyaad-tiles', class extends HTMLElement {
+    setConfig(c) { this._c = c || {}; this._built = false; }
+    getCardSize() { return 6; }
+    set hass(h) {
+      this._h = h;
+      if (!this._built) this._build();
+      (this._kids || []).forEach(function (k) { k.hass = h; });
+    }
+    _build() {
+      this._built = true;
+      if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+      var root = this.shadowRoot, self = this;
+      root.innerHTML = '<style>:host{display:block;color:#fff}:host>div{transform:translateZ(0)}.wrap{display:grid;gap:12px;min-width:min(520px,82vw)}' + GH_CSS + '</style><div class="wrap"></div>';
+      var wrap = root.querySelector('.wrap');
+      this._kids = [];
+      (this._c.sections || []).forEach(function (sec) {
+        var h = document.createElement('div'); h.className = 'gh'; h.innerHTML = '<span>' + esc(sec.title || '') + '</span>'; wrap.appendChild(h);
+        if (!sec.cards || !sec.cards.length) { var n = document.createElement('div'); n.className = 'none'; n.textContent = tr(sec.empty || 'Nothing here'); wrap.appendChild(n); return; }
+        var el = document.createElement('casora-group-list'); el.setConfig({ cards: sec.cards }); el.hass = self._h; wrap.appendChild(el); self._kids.push(el);
+      });
+    }
+  });
+
   // Entities of an area (directly or through their device), visible ones only.
   function inArea(H, area, domain) {
     if (!area) return [];
