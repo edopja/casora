@@ -117,6 +117,16 @@
   function changeSum(H, ids, period) {
     var t = null; (ids || []).forEach(function (id) { var v = change(H, id, period); if (v != null) t = (t || 0) + v; }); return t;
   }
+  // An inverter's own "today" counter (kWh, resets at midnight), e.g. sensor.*_day_pv_energy. Preferred over the
+  // statistics, which a sensor reset can blow up to thousands of kWh.
+  function daily(H, re) {
+    var id = Object.keys(H.states).find(function (e) {
+      return e.indexOf('sensor.') === 0 && re.test(e) && /(^|_)(day|daily|today)(_|$)/.test(e.slice(7)) && /^k?Wh$/i.test(unitOf(H, e)) && num(H, e) != null;
+    });
+    if (!id) return null;
+    var v = num(H, id); return /^Wh$/i.test(unitOf(H, id)) ? v / 1000 : v;
+  }
+  var sane = function (v) { return v != null && v >= 0 && v < 500 ? v : null; };
   // Power history for sparklines (last 12 h, cached 5 min).
   var histCache = {};
   function history(H, id) {
@@ -279,7 +289,7 @@
     else if (sol != null || bat != null || grid != null) house = Math.max(0, (sol || 0) + (bat || 0) + (grid || 0));
     if (sol == null && bat == null && grid == null && house == null) return { sig: 'none', html: '<div class="blk mut">' + esc(tr('Set up solar or a battery in Home Assistant’s energy settings to see the flow.')) + '</div>' };
     var R = function (w) { return w == null ? 'x' : Math.round(w / 10); };
-    var solarToday = changeSum(H, E.solarEnergy, 'day');
+    var solarToday = daily(H, /(pv|solar)/) ; if (solarToday == null) solarToday = sane(changeSum(H, E.solarEnergy, 'day'));
     var b = E.bat || {}, inT = change(H, b.stat_energy_to, 'day'), outT = change(H, b.stat_energy_from, 'day');
     var gIn = null, gOut = null;
     E.grid.forEach(function (g) {
@@ -288,7 +298,8 @@
       if (g.stat_energy_from) { var v1 = change(H, g.stat_energy_from, 'day'); if (v1 != null) gIn = (gIn || 0) + v1; }
       if (g.stat_energy_to) { var v2 = change(H, g.stat_energy_to, 'day'); if (v2 != null) gOut = (gOut || 0) + v2; }
     });
-    var houseToday = solarToday == null && outT == null && gIn == null ? null : Math.max(0, (solarToday || 0) + (outT || 0) - (inT || 0) + (gIn || 0) - (gOut || 0));
+    var houseToday = daily(H, /(load|consumption)/);
+    if (houseToday == null) houseToday = solarToday == null && outT == null && gIn == null ? null : sane(Math.max(0, (solarToday || 0) + (outT || 0) - (inT || 0) + (gIn || 0) - (gOut || 0)));
     var soc = num(H, E.soc), inv = inverter(H, E), pv = strings(H, E);
     var on = function (w) { return w != null && Math.abs(w) > 20; };
     // Headline
