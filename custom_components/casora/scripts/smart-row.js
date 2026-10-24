@@ -2017,7 +2017,249 @@ class CasoraSmartRow extends HTMLElement {
   }
 }
 
-customElements.define('casora-smart-row', CasoraSmartRow);
+customElements.define('casora-smart-row-classic', CasoraSmartRow);
+
+// ── casora-sections (fork) ────────────────────────────────────────────────────────────────
+// Replaces the single big-tile row on every room page with small frosted-glass tiles grouped
+// into sections: Lights · Climate · Entertainment · Appliances · Security · Sensors · Other.
+// A section only appears when the room has something for it. Besides the tiles Casora placed,
+// it adds the room's plugs/switches and its key sensors (presence, motion, leak, doors,
+// temperature, humidity) found through the room's Home Assistant area. Tiles keep Casora's own
+// templates, so tapping and holding still open the same pop-ups.
+// Opt out for the classic row: window.CASORA_SECTIONS = false (before the dashboard loads).
+const CS_SECTIONS = [
+  ['lights', 'Lights', /^casora_(light|scenes|scene_row)$/],
+  ['climate', 'Climate', /^casora_(thermostat|fan|air_device|air_purifier|humidifier|vent|climate_popup)$/],
+  ['media', 'Entertainment', /^casora_(media|now_playing|game|football)$/],
+  ['appliances', 'Appliances', /^casora_(switch|appliance|waschmaschine|trockner|geschirrspueler|coffee|vacuum|3d_printer|car|ebike|lawn_mower|energy|aquarium.*|pet)$/],
+  ['security', 'Security', /^casora_(lock|cover|camera|cameras|doorbell|reolink_doorbell|alarm|frigate)$/],
+  ['sensors', 'Sensors', /^casora_(motion|presence|entity|plant|battery|network|updates)$/],
+];
+const CS_SENSOR_CLASSES = { occupancy: 1, presence: 1, motion: 1, moisture: 1, door: 1, window: 1, opening: 1, garage_door: 1, smoke: 1, gas: 1, carbon_monoxide: 1 };
+const CS_STYLE_ID = 'casora-sections-tile';
+const CS_TILE_CSS = `
+  ha-card {
+    --casora-height-mq: var(--cs-h, 64px) !important;
+    --casora-icon-circle-size: 36px !important;
+    --casora-entity-icon-size-current: 30px !important;
+    --casora-entity-inner-pad-current: 12px 14px !important;
+    --casora-entity-name-font-current: 14.5px !important;
+    --casora-entity-state-font-current: 12.5px !important;
+    --casora-tile-areas-mq: "i n" "i s" !important;
+    --casora-tile-cols-mq: auto minmax(0, 1fr) !important;
+    --casora-tile-rows-mq: auto auto !important;
+    --casora-tile-gap-mq: 1px 12px !important;
+    --casora-tile-name-mb-mq: 0px !important;
+    --casora-tile-align-content-mq: center !important;
+    --casora-tile-icon-align-mq: center !important;
+    --casora-tile-icon-mt-mq: 0px !important;
+    --casora-tile-extras-mq: none !important;
+    --casora-tile-radius-mq: 20px !important;
+    --casora-tile-state-inset-mq: calc(36px + 12px) !important;
+    --casora-toggle-width: 40px !important;
+    --casora-toggle-height: 22px !important;
+    --casora-entity-active-tint: rgba(255, 196, 120, 0.20) !important;
+    --casora-entity-active-tint-mobile: rgba(255, 196, 120, 0.20) !important;
+    --casora-entity-name-active: rgba(255, 255, 255, 0.96) !important;
+    --casora-entity-state-active: rgba(255, 236, 205, 0.85) !important;
+    --casora-entity-state-active-color: rgba(255, 236, 205, 0.85) !important;
+    --casora-box-shadow-mq: inset 0 0 0 1px rgba(255, 255, 255, 0.14), 0 6px 18px rgba(0, 0, 0, 0.18) !important;
+    background-color: rgba(30, 27, 24, 0.30) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(150%) !important;
+    backdrop-filter: blur(22px) saturate(150%) !important;
+    animation: none !important;
+  }
+`;
+
+class CasoraSections extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this._cards = [];
+    this._built = false;
+  }
+  static getConfigElement() { return document.createElement('div'); }
+  static getStubConfig() { return { cards: [] }; }
+  setConfig(config) {
+    if (window.CASORA_SECTIONS === false) { this._classic(config); return; }
+    this._config = config || { cards: [] };
+    this._built = false;
+    if (this._hass) this._build();
+  }
+  set hass(h) {
+    this._hass = h;
+    if (this._classicEl) { this._classicEl.hass = h; return; }
+    if (!this._built && this._config) this._build();
+    else this._cards.forEach((c) => { c.el.hass = h; });
+    this._refreshEmpty();
+  }
+  get hass() { return this._hass; }
+  getCardSize() { return 3; }
+
+  _classic(config) {
+    if (!this._classicEl) {
+      this._classicEl = document.createElement('casora-smart-row-classic');
+      this.shadowRoot.innerHTML = '';
+      this.shadowRoot.appendChild(this._classicEl);
+    }
+    this._classicEl.setConfig(config);
+    if (this._hass) this._classicEl.hass = this._hass;
+  }
+
+  _template(cfg) { const c = resolveCardConfig(cfg) || {}; return String(c.template && (Array.isArray(c.template) ? c.template[0] : c.template) || ''); }
+  _entities(cfg) {
+    const c = resolveCardConfig(cfg) || {}, v = c.variables || {}, out = [];
+    if (c.entity) out.push(c.entity);
+    ['lights', 'active_entities', 'entities'].forEach((k) => { if (Array.isArray(v[k])) v[k].forEach((e) => typeof e === 'string' && out.push(e)); });
+    return out;
+  }
+  _section(cfg) {
+    const t = this._template(cfg);
+    for (const [key, , re] of CS_SECTIONS) if (re.test(t)) return key;
+    const e = this._entities(cfg)[0] || '';
+    const d = e.split('.')[0];
+    if (d === 'light') return 'lights';
+    if (d === 'climate' || d === 'fan') return 'climate';
+    if (d === 'media_player') return 'media';
+    if (d === 'switch') return 'appliances';
+    if (d === 'binary_sensor' || d === 'sensor') return 'sensors';
+    if (d === 'lock' || d === 'cover' || d === 'camera') return 'security';
+    return 'other';
+  }
+  _areaOf(eid) {
+    const H = this._hass || {}, e = (H.entities || {})[eid];
+    if (!e) return null;
+    return e.area_id || ((H.devices || {})[e.device_id] || {}).area_id || null;
+  }
+  // The room's area: the area most of Casora's own tiles live in.
+  _roomArea(cards) {
+    const n = {};
+    cards.forEach((c) => this._entities(c).forEach((e) => { const a = this._areaOf(e); if (a) n[a] = (n[a] || 0) + 1; }));
+    return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || null;
+  }
+  // Plugs, switches and key sensors in the room that Casora did not put a tile on.
+  _discover(area, have) {
+    const H = this._hass || {}, R = H.entities || {}, D = H.devices || {}, S = H.states || {}, out = [];
+    if (!area) return out;
+    const climateDevs = new Set(Object.values(R).filter((e) => e && String(e.entity_id).startsWith('climate.')).map((e) => e.device_id).filter(Boolean));
+    const seenClass = {};
+    Object.values(R).forEach((e) => {
+      if (!e || e.hidden || e.entity_category || have.has(e.entity_id) || !S[e.entity_id]) return;
+      if ((e.area_id || (D[e.device_id] || {}).area_id) !== area) return;
+      const eid = e.entity_id, d = eid.split('.')[0], st = S[eid], dc = (st.attributes || {}).device_class;
+      if (st.state === 'unavailable' && d !== 'binary_sensor') return;
+      // Only a device's main switch (a plug, a stove): settings switches carry their own name
+      // ("Metering only mode", "AI sensitivity") on top of the device's.
+      if (d === 'switch') { if (!e.name) out.push({ type: 'custom:button-card', template: 'casora_switch', entity: eid, _cs: 'appliances' }); }
+      else if (d === 'binary_sensor' && CS_SENSOR_CLASSES[dc]) {
+        out.push({ type: 'custom:button-card', template: (dc === 'occupancy' || dc === 'presence' || dc === 'motion') ? 'casora_motion' : 'casora_entity', entity: eid, _cs: 'sensors' });
+      } else if (d === 'sensor' && (dc === 'temperature' || dc === 'humidity') && !climateDevs.has(e.device_id) && !seenClass[dc]) {
+        seenClass[dc] = 1;
+        out.push({ type: 'custom:button-card', template: 'casora_entity', entity: eid, _cs: 'sensors' });
+      }
+    });
+    return out;
+  }
+  async _build() {
+    if (!this._hass || !this._config) return;
+    this._built = true;
+    const H = this._hass, user = H.user;
+    const base = (this._config.cards || []).filter((c) => !userHides(c, user));
+    const have = new Set();
+    base.forEach((c) => this._entities(c).forEach((e) => have.add(e)));
+    const extra = this._config.discover === false ? [] : this._discover(this._roomArea(base), have);
+    const all = base.map((c) => ({ cfg: c, sec: this._section(c) })).concat(extra.map((c) => {
+      const cfg = Object.assign({}, c); const sec = cfg._cs; delete cfg._cs; return { cfg, sec };
+    }));
+    const helpers = await (window.loadCardHelpers ? window.loadCardHelpers() : Promise.resolve(null));
+    const root = this.shadowRoot;
+    root.innerHTML = `<style>${this._css()}</style><div class="wrap"></div>`;
+    const wrap = root.querySelector('.wrap');
+    this._cards = [];
+    const order = CS_SECTIONS.map((x) => x[0]).concat(['other']);
+    const label = Object.fromEntries(CS_SECTIONS.map((x) => [x[0], x[1]]).concat([['other', 'Other']]));
+    const tr = (t) => (window.casoraTr ? window.casoraTr(t) : t);
+    order.forEach((key) => {
+      const items = all.filter((x) => x.sec === key);
+      if (!items.length) return;
+      const sec = document.createElement('section'); sec.dataset.sec = key;
+      sec.innerHTML = `<h3>${tr(label[key])}</h3><div class="grid"></div>`;
+      const grid = sec.querySelector('.grid');
+      items.forEach((it) => {
+        const cell = document.createElement('div'); cell.className = 'cell';
+        let el;
+        try { el = helpers ? helpers.createCardElement(it.cfg) : document.createElement('div'); }
+        catch (e) { el = document.createElement('div'); }
+        el.hass = H;
+        cell.appendChild(el); grid.appendChild(cell);
+        this._cards.push({ el, cell, sec, cfg: it.cfg });
+        this._styleTile(el, 0);
+      });
+      wrap.appendChild(sec);
+    });
+    this._refreshEmpty();
+  }
+  // Casora's tiles are button-cards; the size and glass live inside their shadow root.
+  _styleTile(el, tries) {
+    const find = (node, depth) => {
+      if (!node || depth > 4) return null;
+      if (node.tagName === 'BUTTON-CARD') return node;
+      const r = node.shadowRoot || node;
+      const kids = r.children ? [...r.children] : [];
+      for (const k of kids) { const f = find(k, depth + 1); if (f) return f; }
+      return null;
+    };
+    const bc = find(el, 0);
+    if (bc && bc.shadowRoot && bc.shadowRoot.querySelector('ha-card')) {
+      if (!bc.shadowRoot.getElementById(CS_STYLE_ID)) {
+        const st = document.createElement('style'); st.id = CS_STYLE_ID; st.textContent = CS_TILE_CSS;
+        bc.shadowRoot.appendChild(st);
+      }
+      if (!bc._csObs) {
+        bc._csObs = new MutationObserver(() => { if (!bc.shadowRoot.getElementById(CS_STYLE_ID)) this._styleTile(el, 0); });
+        bc._csObs.observe(bc.shadowRoot, { childList: true });
+      }
+      return;
+    }
+    if (tries < 40) setTimeout(() => this._styleTile(el, tries + 1), 150);
+  }
+  // A section whose tiles all hide themselves (Casora's hidden/conditional tiles) disappears too.
+  _refreshEmpty() {
+    if (!this.shadowRoot) return;
+    this.shadowRoot.querySelectorAll('section').forEach((sec) => {
+      const cells = [...sec.querySelectorAll('.cell')];
+      const shown = cells.filter((c) => { const r = c.getBoundingClientRect(); return r.height > 4 || !c.isConnected; });
+      sec.hidden = cells.length > 0 && shown.length === 0 && this._settled;
+    });
+    if (!this._settled) setTimeout(() => { this._settled = true; this._refreshEmpty(); }, 1500);
+  }
+  _css() {
+    return `
+      :host { display: block; }
+      :host([hidden]) { display: none; }
+      /* Sections sit side by side and wrap, so a room fits on one screen. */
+      .wrap {
+        display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px 26px;
+        padding: 0 max(var(--casora-measured-safe-left, 0px), var(--casora-rail-left, 16px)) 18px;
+      }
+      section { min-width: 0; }
+      section[hidden] { display: none; }
+      h3 {
+        margin: 0 0 8px 4px; font-size: 11.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.75); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+      }
+      .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+      .cell { width: var(--cs-w, 196px); min-width: 0; height: var(--cs-h, 64px); --cs-h: 64px; --casora-entity-height-current: 64px; }
+      @media (max-width: 767px) {
+        .wrap { display: block; padding: 0 12px 18px; }
+        section + section { margin-top: 14px; }
+        .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .cell { width: auto; }
+      }
+    `;
+  }
+}
+customElements.define('casora-smart-row', CasoraSections);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
