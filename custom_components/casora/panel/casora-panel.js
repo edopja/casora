@@ -2141,6 +2141,11 @@ const SECTIONS = [
         when: (v) => v.casora_greeting === "smart", hint: "Optional: adds battery-full and go-easy greetings in the evening." },
       { ...LIST("casora_greeting_solar", "Solar power (W)", ["sensor"]), always: true, homeOnly: true,
         when: (v) => v.casora_greeting === "smart", hint: "Optional: adds a sunny greeting when solar is above 2 kW." },
+      // Sunyaad: the battery pop-up (banner → Battery). Capacity comes from HA's energy settings.
+      { key: "sunyaad_battery_packs", label: "Battery packs", type: "number", placeholder: "1", always: true, homeOnly: true,
+        hint: "Sunyaad: number of battery packs, shown in the battery pop-up. Capacity comes from the energy settings." },
+      { key: "sunyaad_battery_reserve", label: "Battery reserve (%)", type: "number", placeholder: "20", always: true, homeOnly: true,
+        hint: "Sunyaad: the charge kept back for outages. Marked on the battery bar; time left counts down to it." },
       { key: "__phone_name", label: "Name on phone", type: "text", always: true,
         phoneName: true, placeholder: MOBILE_FAVORITES,
         hint: "Heading of the favorites on the phone's Home page." },
