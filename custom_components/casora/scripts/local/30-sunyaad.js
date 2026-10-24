@@ -428,7 +428,7 @@
     var html = '<div class="wrap">' + parts.join('') + '</div>';
     return {
       sig: sig.join('|'), html: html,
-      css: '.wrap{display:grid;gap:10px;min-width:min(440px,80vw)}.g{padding:14px}.top{display:flex;gap:12px;align-items:center}' +
+      css: '.wrap{display:grid;gap:10px}.g{padding:14px}.top{display:flex;gap:12px;align-items:center}' +
         '.ic{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:rgba(160,180,255,.18);color:rgb(160,180,255)}.ic.open{background:rgba(240,190,90,.2);color:rgb(240,190,90)}.ic ha-icon{--mdc-icon-size:22px}' +
         '.nm{font-size:16px;font-weight:700}.stt{font-size:13px;color:rgba(255,255,255,.8)}' +
         '.acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:8px;margin-top:12px}' +
@@ -581,7 +581,7 @@
     }).join('');
     return {
       sig: sig.join('|'), html: '<div class="wrap">' + body + '</div>',
-      css: '.wrap{display:grid;gap:10px;min-width:min(520px,82vw)}.list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}' +
+      css: '.wrap{display:grid;gap:10px}.list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}' +
         '.lc{border-radius:18px;padding:12px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);transition:background .3s}' +
         '.lc.on{background:linear-gradient(160deg,rgba(var(--c),.22),rgba(255,255,255,.05))}' +
         '.row{display:flex;align-items:center;gap:10px}.ic{width:36px;height:36px;flex:0 0 auto;border:0;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);cursor:pointer}' +
@@ -622,7 +622,7 @@
       this._built = key;
       if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
       var root = this.shadowRoot, c = this._c || {}, self = this;
-      root.innerHTML = '<style>:host{display:block;color:#fff}:host>div{transform:translateZ(0)}.wrap{display:grid;gap:14px;min-width:min(560px,84vw)}' + GH_CSS + '</style><div class="wrap"></div>';
+      root.innerHTML = '<style>:host{display:block;color:#fff}:host>div{transform:translateZ(0)}.wrap{display:grid;gap:14px}' + GH_CSS + '</style><div class="wrap"></div>';
       var wrap = root.querySelector('.wrap');
       this._kids = [];
       var add = function (title, el) { var h = document.createElement('div'); h.className = 'gh'; h.innerHTML = '<span>' + esc(tr(title)) + '</span>'; wrap.appendChild(h); wrap.appendChild(el); el.hass = self._h; self._kids.push(el); };
@@ -695,7 +695,7 @@
     }).join('');
     return {
       sig: sig.join('|'), html: '<div class="wrap">' + body + '</div>',
-      css: '.wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;min-width:min(640px,86vw)}.room{display:grid;gap:8px;align-content:start}' +
+      css: '.wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}.room{display:grid;gap:8px;align-content:start}' +
         '.cf{display:flex;gap:22px}.cf .l{display:block;font-size:10.5px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;color:rgba(255,255,255,.55)}.cf b{font-size:22px;font-weight:800}.cf b small{font-size:12px;opacity:.7;margin-left:2px}.cf b.sm{font-size:16px;line-height:1.7}' +
         '.sp{display:block;width:100%;height:46px;margin-top:8px}.ax{display:flex;justify-content:space-between;font-size:10.5px;color:rgba(255,255,255,.5)}' +
         '.ac{border-radius:18px;padding:12px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}' +
@@ -747,7 +747,7 @@
       this._built = true;
       if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
       var root = this.shadowRoot, self = this;
-      root.innerHTML = '<style>:host{display:block;color:#fff}:host>div{transform:translateZ(0)}.wrap{display:grid;gap:12px;min-width:min(520px,82vw)}' + GH_CSS + '</style><div class="wrap"></div>';
+      root.innerHTML = '<style>:host{display:block;color:#fff}:host>div{transform:translateZ(0)}.wrap{display:grid;gap:12px}' + GH_CSS + '</style><div class="wrap"></div>';
       var wrap = root.querySelector('.wrap');
       this._kids = [];
       (this._c.sections || []).forEach(function (sec) {
@@ -802,6 +802,53 @@
   window.sunyaadOneEach = oneEach;
   window.sunyaadRoomSections = roomSections;
   window.sunyaadInArea = inArea;
+
+  // ── Landscape pop-ups ────────────────────────────────────────────────────────────────────
+  // Casora's pop-up is a 600 px portrait sheet. When its content does not fit the height, the sheet
+  // grows sideways (in steps, up to the screen) so tiles flow into more columns instead of scrolling.
+  // Phones keep the sheet as it is.
+  (function () {
+    var BASE = 600, STEP = 220, busy = false, timers = [], cur = BASE;
+    function parts() {
+      var el = window.casoraPopup && window.casoraPopup.element, sr = el && el.shadowRoot;
+      return sr && el.hasAttribute('open') ? { el: el, surface: sr.querySelector('.surface'), content: sr.querySelector('.content') } : null;
+    }
+    // fresh: a new sheet starts at the base width; later passes only grow it (no jumping while it updates).
+    function fit(fresh) {
+      var p = parts(); if (!p || !p.surface || !p.content || busy) return;
+      if (window.innerWidth < 760) { p.surface.style.removeProperty('width'); p.surface.style.removeProperty('max-width'); return; }
+      busy = true;
+      var max = Math.min(1320, window.innerWidth - 32), w = fresh === true ? BASE : Math.min(cur, max);
+      p.surface.style.setProperty('max-width', max + 'px', 'important');
+      p.surface.style.setProperty('transition', 'width .25s ease');
+      p.surface.style.setProperty('width', w + 'px', 'important');
+      while (p.content.scrollHeight > p.content.clientHeight + 4 && w < max) {
+        w = Math.min(max, w + STEP);
+        p.surface.style.setProperty('width', w + 'px', 'important');
+      }
+      cur = w;
+      busy = false;
+    }
+    // Content arrives a moment after the sheet opens (cards render, history loads): fit again then.
+    function schedule(fresh) {
+      timers.forEach(clearTimeout);
+      timers = [0, 150, 450, 1000, 2200].map(function (ms, i) { return setTimeout(function () { fit(fresh && i === 0); }, ms); });
+    }
+    var watched = null, mo = null;
+    setInterval(function () {
+      var el = window.casoraPopup && window.casoraPopup.element;
+      if (!el || el === watched) return;
+      watched = el;
+      mo = new MutationObserver(function () { if (el.hasAttribute('open')) schedule(true); });
+      mo.observe(el, { attributes: true, attributeFilter: ['open'] });
+      // A pop-up that swaps its content while open (‹ back, a detail page) fits again.
+      var ct = el.shadowRoot && el.shadowRoot.querySelector('.content');
+      if (ct) new MutationObserver(function () { if (el.hasAttribute('open')) schedule(true); }).observe(ct, { childList: true });
+      if (el.hasAttribute('open')) schedule(true);
+    }, 500);
+    window.addEventListener('resize', function () { schedule(true); });
+    window.sunyaadFitPopup = fit;
+  })();
 
   // Open a panel in Casora's pop-up (banner, energy flow → battery).
   window.sunyaadOpen = function (what, opts) {
