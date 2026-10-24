@@ -1,6 +1,4 @@
 {
   "name": "Sunyaad",
-  "homeassistant": "2026.9.0",
-  "zip_release": true,
-  "filename": "sunyaad.zip"
+  "homeassistant": "2026.9.0"
 }
