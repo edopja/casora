@@ -773,6 +773,10 @@ function markPhoneManaged(cfg, showBell, showAssist, rooms) {
           if (hv.casora_greeting && Array.isArray(hv.casora_greeting_people) && hv.casora_greeting_people.length) {
             c.variables.casora_greeting_people = hv.casora_greeting_people.slice();
           } else delete c.variables.casora_greeting_people;
+          ["casora_greeting_weather", "casora_greeting_gate", "casora_greeting_battery", "casora_greeting_solar"].forEach((k) => {
+            if (hv.casora_greeting === "smart" && Array.isArray(hv[k]) && hv[k].length) c.variables[k] = hv[k].slice();
+            else delete c.variables[k];
+          });
         }
       }
       walk(c.cards);
@@ -2122,13 +2126,21 @@ const SECTIONS = [
       { key: "__name", label: "Room name", type: "text", always: true },
       // 1.4: Begrüßung statt Name, nur Startseite (casora-core.js casoraGreeting).
       { key: "casora_greeting", label: "Title", type: "select", always: true, homeOnly: true,
-        options: ["", "time", "names", "user"],
+        options: ["", "time", "names", "user", "smart"],
         optionLabels: { "": "Room name", time: "Greeting by time of day", names: "Greeting with who is home",
-          user: "Greeting the signed-in user" },
+          user: "Greeting the signed-in user", smart: "Smart greeting (weather, holidays, birthdays)" },
         hint: "Good morning, good afternoon or good evening instead of the name. A long greeting gets smaller and stays on one line." },
       { ...LIST("casora_greeting_people", "People to name", ["person"]), always: true, homeOnly: true,
         when: (v) => v.casora_greeting === "names",
         hint: "Empty: everyone who is home. With three or more at home, just the greeting." },
+      { ...LIST("casora_greeting_weather", "Weather for the greeting", ["weather"]), always: true, homeOnly: true,
+        when: (v) => v.casora_greeting === "smart", hint: "Empty: the first weather entity." },
+      { ...LIST("casora_greeting_gate", "Gate to warn about at night", ["cover"]), always: true, homeOnly: true,
+        when: (v) => v.casora_greeting === "smart", hint: "Optional." },
+      { ...LIST("casora_greeting_battery", "Battery level (%)", ["sensor"]), always: true, homeOnly: true,
+        when: (v) => v.casora_greeting === "smart", hint: "Optional: adds battery-full and go-easy greetings in the evening." },
+      { ...LIST("casora_greeting_solar", "Solar power (W)", ["sensor"]), always: true, homeOnly: true,
+        when: (v) => v.casora_greeting === "smart", hint: "Optional: adds a sunny greeting when solar is above 2 kW." },
       { key: "__phone_name", label: "Name on phone", type: "text", always: true,
         phoneName: true, placeholder: MOBILE_FAVORITES,
         hint: "Heading of the favorites on the phone's Home page." },
