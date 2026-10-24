@@ -667,6 +667,8 @@ window.CASORA_EXTRA_ICONS = Object.fromEntries([
   if (!window.casoraTr) import("/casora_scripts/casora-i18n.js").catch(() => {});
   // Chart card (1.2) for the optional sparklines in the preview.
   if (!window.casoraChart) import("/casora_scripts/casora-chart.js").catch(() => {});
+  // Sunyaad: banner and tile plan for the preview, the same code the dashboard runs.
+  if (!window.sunyaadMergedPlan) import("/casora_scripts/local/30-sunyaad.js").catch(() => {});
 
   const lang = (hass) => (((hass && ((hass.locale && hass.locale.language) || hass.language)) || "en").split("-")[0]);
   const T = {

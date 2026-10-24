@@ -63,7 +63,7 @@ def options_schema(hass: HomeAssistant, options: dict[str, Any]) -> vol.Schema:
         vol.Optional(OPT_OUT_RH, description=sug(OPT_OUT_RH)): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="sensor", device_class="humidity")),
         vol.Optional(OPT_PRICE, description=sug(OPT_PRICE)): selector.NumberSelector(
-            selector.NumberSelectorConfig(min=0, max=2, step=0.01, unit_of_measurement="€/kWh",
+            selector.NumberSelectorConfig(min=0, max=100000, step=0.01, unit_of_measurement=f"{hass.config.currency or ''}/kWh",  # Sunyaad: any currency (J$80/kWh)
                                           mode=selector.NumberSelectorMode.BOX)),
         vol.Optional(OPT_NOTES, description=sug(OPT_NOTES)): selector.TextSelector(
             selector.TextSelectorConfig(multiline=True)),

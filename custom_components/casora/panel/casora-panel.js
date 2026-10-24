@@ -338,7 +338,7 @@ function expandConfig(compact, scaffold, extras, templates) {
     cards: [
       { ...clone(room._hero), name: room.name, variables: heroVars(room) },
       clone(scaffold.nav),
-      { ...clone(room._row), cards: clone(room.tiles) },
+      sunyaadRow({ ...clone(room._row), cards: clone(room.tiles) }, room.variables),
       ...(clone(room._extraCards) || []),
     ],
   }));
@@ -353,6 +353,16 @@ function expandConfig(compact, scaffold, extras, templates) {
 const MOBILE_SHELL = "casora_mobile_bg";
 const MOBILE_HEADER = "casora_mobile_header";
 const SMART_ROW = "custom:casora-smart-row";
+// Sunyaad: the Studio keeps "Tiles & areas" in the room's variables; the tile row (casora-smart-row)
+// reads them from its own config. Written on every save so both stay in step.
+function sunyaadRow(row, vars) {
+  const v = vars || {};
+  if (Array.isArray(v.sunyaad_areas) && v.sunyaad_areas.length) row.sunyaad_rooms = v.sunyaad_areas.slice();
+  else delete row.sunyaad_rooms;
+  if (Array.isArray(v.sunyaad_tiles) && v.sunyaad_tiles.length) row.sunyaad_tiles = v.sunyaad_tiles.slice();
+  else delete row.sunyaad_tiles;
+  return row;
+}
 
 function isMobileConfig(lovelace) {
   return ((((lovelace || {}).views || [])[0] || {}).cards || [])
@@ -443,7 +453,7 @@ function expandMobileConfig(compact, scaffold, extras, templates, chrome) {
     put(header, "name", clone(room.name));
     const hv = clone(room.variables);
     if (hv && Object.keys(hv).length) header.variables = hv;
-    const row = { ...clone(room._row), cards: clone(room.tiles) };
+    const row = sunyaadRow({ ...clone(room._row), cards: clone(room.tiles) }, room.variables);
     const vis = roomVisibility(room.variables).cond;
     [header, row].forEach((c) => { if (vis) c.visibility = clone(vis); else delete c.visibility; });
     kids.push(header);
@@ -2120,6 +2130,15 @@ const fieldFault = (f, val, hass) => {
 const secName = (sec) => (sec && (sec.title || sec.label)) || "";
 
 const SECTIONS = [
+  {
+    // Sunyaad: which tiles the page shows (grouped, each opens its pop-up) and, for a page like
+    // Bedrooms, which areas it brings together. The dashboard and the preview read the same settings.
+    label: "Sunyaad", title: "Tiles & areas", icon: "home", iconColor: studioIcon("appearance"), group: "rooms",
+    blurb: "The tiles along the bottom of this page. Bring several areas together for one page, like Bedrooms.",
+    fields: [
+      { key: "sunyaad_tiles", label: "Tiles & areas", type: "sunyaad", always: true },
+    ],
+  },
   {
     label: "Appearance", icon: "home", iconColor: studioIcon("appearance"), group: "rooms",
     fields: [
@@ -18015,6 +18034,12 @@ class CasoraPanel extends HTMLElement {
           return;
         }
 
+        if (f.type === "sunyaad") {
+          row.remove();
+          this._sunyaadField(room, fs, (k, v) => setVar(k, v, f));
+          return;
+        }
+
         if (f.type === "extras") {
           row.remove();
           this._extrasField(room, fs, f);
@@ -24640,6 +24665,126 @@ class CasoraPanel extends HTMLElement {
     return null;
   }
 
+  // ── Sunyaad in the Studio ────────────────────────────────────────────────────────────────
+  // "Tiles & areas": the areas a page brings together (Bedrooms) and the tiles it shows, in order.
+  _sunyaadField(room, fs, set) {
+    const H = this._hass, V = room.variables || {};
+    const areasSel = Array.isArray(V.sunyaad_areas) ? V.sunyaad_areas.slice() : [];
+    const merged = areasSel.length > 0;
+    const M = window.sunyaadMergedTiles || { keys: ["lights", "media", "climate", "appliances", "energy", "presence"],
+      labels: { lights: "Lights", media: "Entertainment", climate: "Climate", appliances: "Appliances", energy: "Energy", presence: "Presence" },
+      defaults: ["lights", "media", "climate", "appliances", "energy"] };
+    const G = window.sunyaadRoomGroups || [{ key: "lights", label: "Lights" }, { key: "climate", label: "Climate" },
+      { key: "appliances", label: "Appliances" }, { key: "media", label: "Entertainment" }, { key: "sensors", label: "Sensors" }];
+    const keys = merged ? M.keys : G.map((g) => g.key);
+    const labels = merged ? M.labels : Object.fromEntries(G.map((g) => [g.key, g.label]));
+    const defaults = merged ? M.defaults : G.map((g) => g.key);
+    const shown = Array.isArray(V.sunyaad_tiles) && V.sunyaad_tiles.length ? V.sunyaad_tiles.filter((k) => keys.includes(k)) : defaults.slice();
+    const again = () => { this._syncPreview(); this._renderForm(); };
+    const head = (text, hint) => {
+      const h = document.createElement("div");
+      h.className = "subhead";
+      h.textContent = text;
+      fs.appendChild(h);
+      if (hint) { const p = document.createElement("div"); p.className = "hint"; p.textContent = hint; fs.appendChild(p); }
+    };
+    const pillCss = (on) => "border:0;border-radius:999px;padding:7px 13px;margin:0 6px 6px 0;cursor:pointer;font:inherit;font-size:var(--t-foot,13px);"
+      + (on ? "background:var(--casora-studio-done, var(--accent, #B67A50));color:#fff;"
+        : "background:var(--chip, rgba(255,255,255,.08));color:var(--ink, #fff);box-shadow:inset 0 0 0 1px var(--chip-rim, rgba(255,255,255,.12));");
+
+    // Tiles: on/off and order
+    head("Tiles on this page", "Tap a tile to show or hide it. The arrows change the order.");
+    const list = document.createElement("div");
+    list.style.cssText = "display:grid;gap:6px;margin:0 0 14px";
+    const write = (next) => set("sunyaad_tiles", next.join() === defaults.join() ? undefined : next);
+    const order = shown.concat(keys.filter((k) => !shown.includes(k)));
+    order.forEach((k) => {
+      const on = shown.includes(k);
+      const r = document.createElement("div");
+      r.style.cssText = "display:flex;align-items:center;gap:8px";
+      const b = document.createElement("button");
+      b.type = "button";
+      b.style.cssText = pillCss(on) + "margin:0;flex:1;text-align:left";
+      b.textContent = (on ? "✓  " : "+  ") + labels[k];
+      b.onclick = () => { write(on ? shown.filter((x) => x !== k) : shown.concat(k)); again(); };
+      r.appendChild(b);
+      if (on) {
+        const i = shown.indexOf(k);
+        [["↑", -1], ["↓", 1]].forEach(([t, d]) => {
+          const m = document.createElement("button");
+          m.type = "button";
+          m.textContent = t;
+          m.disabled = i + d < 0 || i + d >= shown.length;
+          m.style.cssText = pillCss(false) + "margin:0;width:36px;padding:7px 0;opacity:" + (m.disabled ? ".35" : "1");
+          m.onclick = () => { const n = shown.slice(); n.splice(i, 1); n.splice(i + d, 0, k); write(n); again(); };
+          r.appendChild(m);
+        });
+      }
+      list.appendChild(r);
+    });
+    fs.appendChild(list);
+
+    // Areas brought together
+    head("Areas on this page", merged
+      ? "This page shows these areas together; each pop-up lists them room by room. Remove all to make it a normal room again."
+      : "Pick two or more areas to make one page for them, like Bedrooms. Leave empty for a normal room.");
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-wrap:wrap;margin:0 0 6px";
+    Object.values(H.areas || {}).sort((a, b) => String(a.name).localeCompare(String(b.name))).forEach((a) => {
+      const on = areasSel.includes(a.area_id);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.style.cssText = pillCss(on);
+      b.textContent = a.name;
+      b.setAttribute("data-no-i18n", "");
+      b.onclick = () => {
+        const next = on ? areasSel.filter((x) => x !== a.area_id) : areasSel.concat(a.area_id);
+        // The tile choice belongs to one kind of page: switching kinds starts from its default.
+        if (!!next.length !== merged) set("sunyaad_tiles", undefined);
+        set("sunyaad_areas", next.length ? next : undefined);
+        again();
+      };
+      wrap.appendChild(b);
+    });
+    fs.appendChild(wrap);
+  }
+
+  // The preview draws what the dashboard shows: Sunyaad's banner instead of Casora's badges and
+  // the grouped tiles (or a Bedrooms-style page) instead of the single devices.
+  _sunyaadPreview(room, badges, tiles) {
+    try {
+      if (window.CASORA_SECTIONS === false || !window.sunyaadMergedPlan || !window.sunyaadRoomPlan) return;
+      const H = this._hass, V = room.variables || {}, rooms = ((this._state || {}).compact || {}).rooms || [];
+      const merged = Array.isArray(V.sunyaad_areas) && V.sunyaad_areas.length > 0;
+      const plan = merged ? window.sunyaadMergedPlan(H, V.sunyaad_areas, V.sunyaad_tiles)
+        : window.sunyaadRoomPlan(H, room.tiles, V.sunyaad_tiles);
+      const toSection = (ev) => { ev.stopPropagation(); this._select({ group: "rooms", key: "Sunyaad", label: "Sunyaad" }); };
+      [...tiles.children].forEach((c) => { if (merged || !c.classList.contains("ghost")) c.style.display = "none"; });
+      plan.forEach((t) => {
+        const el = document.createElement("div");
+        el.className = "mtile";
+        el.innerHTML = '<span class="mtop"><span class="mcircle"><span class="mglyph"></span></span></span>'
+          + '<span class="mbot"><span class="mname"></span><span class="mstate"></span></span>';
+        el.querySelector(".mglyph").style.setProperty("--i", "url('" + iconUrl(t.icon) + "')");
+        el.querySelector(".mname").textContent = t.name;
+        el.querySelector(".mstate").textContent = t.state;
+        el.title = "Tiles & areas";
+        el.onclick = toSection;
+        tiles.appendChild(el);
+      });
+      // Banner
+      if (customElements.get("sunyaad-banner")) {
+        const home = room === rooms[0] || room.path === "home";
+        [...badges.children].forEach((c) => { c.style.display = "none"; });
+        const bn = document.createElement("sunyaad-banner");
+        bn.style.cssText = "pointer-events:none;transform-origin:left center";
+        badges.appendChild(bn);
+        bn.update(H, home ? V : ((rooms[0] || {}).variables || {}), { _sunyaadScope: home ? "home" : "room", _config: { variables: V } });
+        badges.onclick = toSection;
+      }
+    } catch (e) { /* the preview keeps Casora's own drawing */ }
+  }
+
   _paintTile(tile, ti, room) {
       // Casora: bedingte Karten wie im Dashboard (panel/casora-panel-types.js).
       const cu = (window.casoraPreviewUnwrap && window.casoraPreviewUnwrap(tile, this._hass)) || {};
@@ -25287,6 +25432,7 @@ class CasoraPanel extends HTMLElement {
         tiles.appendChild(this._paintTile(tile, ti, room));
       });
     this._applyMiniSort(false, tiles);
+    this._sunyaadPreview(room, badges, tiles);
 
     }
 
