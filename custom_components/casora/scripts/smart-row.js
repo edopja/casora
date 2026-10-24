@@ -2258,7 +2258,7 @@ class CasoraSections extends HTMLElement {
       const popup = {
         title: tr(onHome && g.key === 'media' ? 'Media' : g.label),
         // Appliances: Sunyaad's appliance cards (power, history, today, month, cost); the rest stays Casora tiles.
-        content: { type: g.key === 'appliances' && customElements.get('sunyaad-appliances') ? 'custom:sunyaad-appliances' : 'custom:casora-group-list', cards: members },
+        content: { type: g.key === 'appliances' ? 'custom:sunyaad-appliances' : 'custom:casora-group-list', cards: members },
         dismissable: true,
         dismiss_on_background: true,
       };
