@@ -629,12 +629,109 @@
       var mk = function (tag, cfg) { var el = document.createElement(tag); if (el.setConfig) el.setConfig(cfg); else el._c = cfg; return el; };
       var tiles = function (ids, tpl) { return ids.map(function (e) { return { type: 'custom:button-card', template: typeof tpl === 'function' ? tpl(e) : tpl, entity: e }; }); };
       if (sec.lights.length) add('Lights', mk('sunyaad-lights', { entities: sec.lights }));
-      if (sec.climate.length) add('Climate', mk('casora-group-list', { cards: tiles(sec.climate, function (e) { return e.indexOf('fan.') === 0 ? 'casora_fan' : 'casora_thermostat'; }) }));
+      if (sec.climate.length) add('Climate', mk('sunyaad-climate', { rooms: [{ name: '', area: self._c.area }] }));
       if (sec.plugs.length) add('Appliances', mk('sunyaad-appliances', { cards: tiles(sec.plugs, 'casora_switch') }));
       if (sec.media.length) add('Entertainment', mk('casora-group-list', { cards: tiles(sec.media, 'casora_media') }));
       if (sec.sensors.length) add('Sensors', mk('casora-group-list', { cards: tiles(sec.sensors, function (e) { return /occupancy|presence|motion/.test(dclass(self._h, e) || '') ? 'casora_motion' : 'casora_entity'; }) }));
       if (!wrap.children.length) wrap.innerHTML = '<div class="none">' + esc(tr('Nothing in this room yet.')) + '</div>';
     }
+  });
+
+  // ── Climate: one card per room — the room's temperature and humidity, a 24 h graph, and its AC ──
+  // config: { rooms: [{name, area}] } or { entities: [climate ids] }.
+  var MODE_ICON = { cool: 'mdi:snowflake', heat: 'mdi:fire', dry: 'mdi:water-percent', fan_only: 'mdi:fan', auto: 'mdi:autorenew', heat_cool: 'mdi:sun-snowflake-variant', off: 'mdi:power' };
+  var MODE_NAME = { cool: 'Cool', heat: 'Heat', dry: 'Dry', fan_only: 'Fan', auto: 'Auto', heat_cool: 'Auto', off: 'Off' };
+  function roomClimate(H, area, ids) {
+    var all = area ? inArea(H, area) : [];
+    var acs = (ids || all.filter(function (e) { return e.indexOf('climate.') === 0; })).filter(function (e) { return H.states[e]; });
+    var t = all.find(function (e) { return e.indexOf('sensor.') === 0 && dclass(H, e) === 'temperature' && num(H, e) != null; });
+    var h = all.find(function (e) { return e.indexOf('sensor.') === 0 && dclass(H, e) === 'humidity' && num(H, e) != null; });
+    var occ = all.filter(function (e) { return e.indexOf('binary_sensor.') === 0 && /^(occupancy|presence|motion)$/.test(dclass(H, e) || ''); });
+    return { acs: acs, temp: t, hum: h, occ: occ };
+  }
+  define('sunyaad-climate', function (H, c) {
+    var rooms = Array.isArray(c.rooms) && c.rooms.length ? c.rooms : [{ name: '', area: null, ids: c.entities || [] }];
+    var sig = [];
+    var body = rooms.map(function (r) {
+      var rc = roomClimate(H, r.area, r.ids);
+      var a0 = rc.acs[0] && H.states[rc.acs[0]].attributes || {};
+      var T = num(H, rc.temp); if (T == null && a0.current_temperature != null) T = +a0.current_temperature;
+      var RH = num(H, rc.hum); if (RH == null && a0.current_humidity != null) RH = +a0.current_humidity;
+      var here = rc.occ.some(function (e) { return H.states[e].state === 'on'; });
+      var hist = history(H, rc.temp), sp = spark(hist, 300, 60);
+      sig.push(r.area, T, RH, here, hist ? hist.length : 0);
+      var comfort = '<div class="cf">' +
+        '<div><span class="l">' + esc(tr('Temp')) + '</span><b>' + (T == null ? '–' : (+T).toFixed(1)) + '<small>°</small></b></div>' +
+        '<div><span class="l">' + esc(tr('Humidity')) + '</span><b>' + (RH == null ? '–' : Math.round(RH)) + '<small>%</small></b></div>' +
+        (rc.occ.length ? '<div><span class="l">' + esc(tr('Room')) + '</span><b class="sm">' + esc(here ? tr('Occupied') : tr('Empty')) + '</b></div>' : '') + '</div>' +
+        (sp ? '<svg class="sp" viewBox="0 0 300 60" preserveAspectRatio="none"><path d="' + sp.area + '" fill="rgba(240,170,90,.16)"/><path d="' + sp.line + '" fill="none" stroke="rgb(240,170,90)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg><div class="ax"><span>' + esc(tr('12 h ago')) + '</span><span>' + esc(tr('Now')) + '</span></div>' : '');
+      var acs = rc.acs.map(function (e) {
+        var st = H.states[e], a = st.attributes || {}, on = st.state !== 'off' && st.state !== 'unavailable';
+        var lo = a.min_temp != null ? +a.min_temp : 16, hi = a.max_temp != null ? +a.max_temp : 30, step = a.target_temp_step || (H.config && H.config.unit_system && H.config.unit_system.temperature === '°F' ? 1 : 0.5);
+        var tgt = a.temperature != null ? +a.temperature : null;
+        var pct = tgt == null ? 0 : Math.max(0, Math.min(1, (tgt - lo) / (hi - lo)));
+        // Arc of 270°: 135° … 405°
+        var ang = (135 + pct * 270) * Math.PI / 180, cx = 100 + 80 * Math.cos(ang), cy = 100 + 80 * Math.sin(ang);
+        var arc = function (p) { var e2 = (135 + p * 270) * Math.PI / 180; var x = 100 + 80 * Math.cos(e2), y = 100 + 80 * Math.sin(e2); var s2 = 135 * Math.PI / 180; return 'M' + (100 + 80 * Math.cos(s2)).toFixed(1) + ' ' + (100 + 80 * Math.sin(s2)).toFixed(1) + ' A80 80 0 ' + (p * 270 > 180 ? 1 : 0) + ' 1 ' + x.toFixed(1) + ' ' + y.toFixed(1); };
+        var modes = (a.hvac_modes || []).filter(function (m) { return MODE_NAME[m]; });
+        var eco = (a.preset_modes || []).find(function (m) { return /eco/i.test(m); });
+        var pw = siblings(H, e).find(function (x) { return x.indexOf('sensor.') === 0 && dclass(H, x) === 'power'; });
+        var col = st.state === 'heat' ? '240,130,90' : on ? '100,200,255' : '200,200,200';
+        sig.push(e, st.state, tgt, a.current_temperature, a.preset_mode, a.fan_mode, pw && Math.round(watts(H, pw) || 0));
+        return '<div class="ac" style="--c:' + col + '" data-e="' + esc(e) + '">' +
+          '<div class="row"><div class="ic"><ha-icon icon="mdi:air-conditioner"></ha-icon></div><div class="nm"><b>' + esc(friendly(H, e)) + '</b><span>' +
+          esc(a.current_temperature != null ? tr('Room') + ' ' + a.current_temperature + '°' : '') + '</span></div><span class="pill' + (on ? ' on' : '') + '">' + esc(tr(MODE_NAME[st.state] || st.state)) + '</span></div>' +
+          '<div class="dial"><svg viewBox="0 0 200 200"><path d="' + arc(1) + '" stroke="rgba(255,255,255,.12)" stroke-width="10" fill="none" stroke-linecap="round"/>' +
+          (tgt != null ? '<path d="' + arc(pct || 0.001) + '" stroke="rgb(var(--c))" stroke-width="10" fill="none" stroke-linecap="round" opacity="' + (on ? 1 : .35) + '"/><circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="9" fill="#fff"/>' : '') + '</svg>' +
+          '<div class="mid"><b>' + (tgt == null ? '–' : tgt) + '<small>°</small></b><span>' + esc(tr('Target')) + (a.current_temperature != null ? ' · ' + esc(tr('Now')) + ' ' + a.current_temperature + '°' : '') + '</span></div>' +
+          '<div class="lo">' + lo + '°</div><div class="hi">' + hi + '°</div></div>' +
+          '<div class="pm"><button data-d="-' + step + '">−</button><button data-d="' + step + '">+</button></div>' +
+          (modes.length ? '<div class="modes">' + modes.map(function (m) { return '<button class="md' + (st.state === m ? ' sel' : '') + '" data-m="' + m + '"><ha-icon icon="' + MODE_ICON[m] + '"></ha-icon><span>' + esc(tr(MODE_NAME[m])) + '</span></button>'; }).join('') + '</div>' : '') +
+          '<div class="foot">' + (eco ? '<button class="eco' + (a.preset_mode === eco ? ' sel' : '') + '" data-p="' + esc(eco) + '"><ha-icon icon="mdi:leaf"></ha-icon>' + esc(tr('Eco')) + '</button>' : '<span></span>') +
+          (pw ? '<span class="use">' + esc(tr('Using')) + ' <b>' + esc(fmtW(watts(H, pw))) + '</b></span>' : '') + '</div></div>';
+      }).join('');
+      return '<div class="room">' + (r.name ? '<div class="gh"><span>' + esc(r.name) + '</span></div>' : '') + '<div class="blk">' + comfort + '</div>' +
+        (acs || '<div class="none">' + esc(tr('No AC in this room')) + '</div>') + '</div>';
+    }).join('');
+    return {
+      sig: sig.join('|'), html: '<div class="wrap">' + body + '</div>',
+      css: '.wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;min-width:min(640px,86vw)}.room{display:grid;gap:8px;align-content:start}' +
+        '.cf{display:flex;gap:22px}.cf .l{display:block;font-size:10.5px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;color:rgba(255,255,255,.55)}.cf b{font-size:22px;font-weight:800}.cf b small{font-size:12px;opacity:.7;margin-left:2px}.cf b.sm{font-size:16px;line-height:1.7}' +
+        '.sp{display:block;width:100%;height:46px;margin-top:8px}.ax{display:flex;justify-content:space-between;font-size:10.5px;color:rgba(255,255,255,.5)}' +
+        '.ac{border-radius:18px;padding:12px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}' +
+        '.row{display:flex;align-items:center;gap:10px}.ic{width:36px;height:36px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;background:rgba(var(--c),.2);color:rgb(var(--c))}.ic ha-icon{--mdc-icon-size:19px}' +
+        '.nm{flex:1;min-width:0}.nm b{display:block;font-size:14.5px}.nm span{font-size:12px;color:rgba(255,255,255,.6)}' +
+        '.pill{font-size:11.5px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.6)}.pill.on{background:rgba(var(--c),.25);color:rgb(var(--c))}' +
+        '.dial{position:relative;width:170px;margin:4px auto 0}.dial svg{display:block;width:100%}' +
+        '.mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}.mid b{font-size:34px;font-weight:800;letter-spacing:-1px}.mid b small{font-size:15px;vertical-align:top}.mid span{font-size:11px;color:rgba(255,255,255,.6)}' +
+        '.lo,.hi{position:absolute;bottom:4px;font-size:11px;color:rgba(255,255,255,.5)}.lo{left:22px}.hi{right:22px}' +
+        '.pm{display:flex;justify-content:center;margin:2px 0 10px}.pm button{width:52px;height:34px;border:0;background:rgba(255,255,255,.1);color:#fff;font-size:20px;cursor:pointer}.pm button:first-child{border-radius:17px 0 0 17px;border-right:1px solid rgba(255,255,255,.12)}.pm button:last-child{border-radius:0 17px 17px 0}' +
+        '.modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(60px,1fr));gap:6px}.md{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:8px;border:0;border-radius:12px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);color:#fff;font-size:12px;cursor:pointer}' +
+        '.md ha-icon{--mdc-icon-size:16px}.md.sel{background:rgba(var(--c),.25);box-shadow:inset 0 0 0 1px rgba(var(--c),.6)}' +
+        '.foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px}.eco{display:flex;align-items:center;gap:6px;border:0;border-radius:999px;padding:6px 12px;background:rgba(255,255,255,.08);color:#fff;font-size:12.5px;cursor:pointer}.eco ha-icon{--mdc-icon-size:15px}.eco.sel{background:rgba(120,200,140,.3)}' +
+        '.use{font-size:12.5px;color:rgba(255,255,255,.6)}.use b{color:#fff}' + GH_CSS,
+      bind: function (root) {
+        var self = this;
+        root.querySelectorAll('.ac').forEach(function (card) {
+          var e = card.dataset.e;
+          card.querySelectorAll('[data-d]').forEach(function (b) {
+            b.addEventListener('click', function () {
+              var a = (self._h.states[e] || {}).attributes || {}, t = (a.temperature != null ? +a.temperature : 24) + +b.dataset.d;
+              t = Math.max(a.min_temp != null ? +a.min_temp : 16, Math.min(a.max_temp != null ? +a.max_temp : 30, t));
+              self._h.callService('climate', 'set_temperature', { entity_id: e, temperature: Math.round(t * 2) / 2 });
+            });
+          });
+          card.querySelectorAll('[data-m]').forEach(function (b) { b.addEventListener('click', function () { self._h.callService('climate', 'set_hvac_mode', { entity_id: e, hvac_mode: b.dataset.m }); }); });
+          card.querySelectorAll('[data-p]').forEach(function (b) {
+            b.addEventListener('click', function () {
+              var a = (self._h.states[e] || {}).attributes || {};
+              var off = (a.preset_modes || []).find(function (m) { return /^(none|normal|comfort)$/i.test(m); }) || 'none';
+              self._h.callService('climate', 'set_preset_mode', { entity_id: e, preset_mode: a.preset_mode === b.dataset.p ? off : b.dataset.p });
+            });
+          });
+        });
+      },
+    };
   });
 
   // Casora tiles under section headings (Bedrooms → Climate, Sensors: one section per room).

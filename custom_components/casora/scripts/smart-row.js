@@ -2250,8 +2250,7 @@ class CasoraSections extends HTMLElement {
       const on = climate.filter((e) => S[e].state !== 'off');
       const c0 = on.find((e) => e.startsWith('climate.'));
       tile(tr('Climate'), 'thermostat', on.length ? (c0 && (S[c0].attributes || {}).temperature != null ? tr('AC') + ' ' + S[c0].attributes.temperature + '°' : on.length + ' ' + tr('on')) : tr('Off'), climate, {
-        type: 'custom:sunyaad-tiles',
-        sections: per.map((r) => ({ title: r.name, empty: 'No AC here', cards: r.sec.climate.map((e) => ({ type: 'custom:button-card', template: e.startsWith('fan.') ? 'casora_fan' : 'casora_thermostat', entity: e })) })) });
+        type: 'custom:sunyaad-climate', rooms });
     }
     const plugs = all('plugs');
     if (plugs.length) {
@@ -2452,7 +2451,8 @@ customElements.define('casora-smart-row', CasoraSections);
       const running = cl.filter((e) => S[e].state !== 'off').length;
       out.push({ key: 'climate', label: 'Climate', icon: 'mdi:air-conditioner', c: '100,210,255',
         value: (t != null && !isNaN(t) ? Math.round(t) + '°' : '') + (running ? (t != null ? ' · ' : '') + (c0 && S[c0].state !== 'off' && a.temperature != null ? 'set ' + a.temperature + '°' : running + ' on') : (t != null ? ' · Off' : 'Off')),
-        popup: cl.map((e) => tile(e.startsWith('fan.') ? 'casora_fan' : 'casora_thermostat', e)) });
+        content: areas ? { type: 'custom:sunyaad-climate', rooms: areas.map((x) => ({ name: ((H.areas || {})[x] || {}).name || '', area: x })) }
+          : area ? { type: 'custom:sunyaad-climate', rooms: [{ name: '', area }] } : { type: 'custom:sunyaad-climate', entities: cl.filter((e) => e.startsWith('climate.')) } });
     } else if (temp) {
       out.push({ key: 'temp', label: 'Temperature', icon: 'mdi:thermometer', c: '100,210,255', value: Math.round(parseFloat(S[temp].state)) + '°', popup: [tile('casora_entity', temp)] });
     }
