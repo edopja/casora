@@ -2230,7 +2230,9 @@ class CasoraSections extends HTMLElement {
     const cards = [], sig = [];
     P(H, rooms, this._config.sunyaad_tiles).forEach((t) => {
       const popup = { title: t.name, content: t.content, dismissable: true, dismiss_on_background: true };
-      cards.push({ type: 'custom:button-card', template: 'casora_entity', entity: t.active[0] || 'sun.sun',
+      // A climate entity on the tile makes Casora open the AC's own pop-up (or nothing) instead of ours.
+      const ent = (t.active || []).find((e) => !/^(climate|fan|humidifier)\./.test(e)) || 'sun.sun';
+      cards.push({ type: 'custom:button-card', template: 'casora_entity', entity: ent,
         name: t.name, show_state: true, state_display: t.state, variables: { icon: t.icon, active_entities: t.active },
         tap_action: { action: 'fire-dom-event', haptic: 'light', casora_popup: popup },
         hold_action: { action: 'fire-dom-event', haptic: 'medium', casora_popup: popup },
