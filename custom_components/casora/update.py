@@ -101,7 +101,16 @@ def hacs_knows(hass: HomeAssistant, repo_id: str) -> bool:
 
 def hacs_repo_id(hass: HomeAssistant) -> str | None:
     """GitHub id of UPDATE_REPO if HACS manages Casora, else None."""
-    return UPDATE_REPO_ID if hacs_knows(hass, UPDATE_REPO_ID) else None
+    if UPDATE_REPO_ID:
+        return UPDATE_REPO_ID if hacs_knows(hass, UPDATE_REPO_ID) else None
+    # Sunyaad: the fork's id is not written down; HACS names the repository's device after hacs.json
+    # ("Sunyaad") and its maker after the owner, so it is found in the device registry.
+    owner = UPDATE_REPO.split("/")[0].lower()
+    for d in list(dr.async_get(hass).devices.values()):
+        for dom, rid in d.identifiers:
+            if dom == "hacs" and (owner in str(d.manufacturer or "").lower() or str(d.name or "") == "Sunyaad"):
+                return rid
+    return None
 
 
 def beta_enabled(entry: ConfigEntry | None) -> bool:

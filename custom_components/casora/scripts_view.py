@@ -33,7 +33,7 @@ _TYPES = {".js": "text/javascript", ".json": "application/json", ".css": "text/c
 STUDIO_LOADER = "casora-studio.js"
 STUDIO_LOADER_KEY = "studio_loader"
 STUDIO_MODULES = (
-    "casora-panel-i18n.js", "casora-panel-types.js", "casora-panel.js", "casora-panel-import.js",
+    "casora-panel-i18n.js", "casora-panel-types.js", "sunyaad-studio.js", "casora-panel.js", "casora-panel-import.js",
     "casora-panel-assist.js", "casora-panel-personal.js", "casora-panel-umzug.js", "casora-panel-basis.js",
     "casora-panel-versions.js", "casora-panel-updates.js", "casora-panel-settings.js", "casora-panel-glocke.js",
     "casora-panel-popups.js", "casora-panel-kachelart.js", "casora-panel-addons.js", "casora-panel-welcome.js",

@@ -103,10 +103,12 @@ async def _sync_script_resources(hass: HomeAssistant, scripts_dir: str, keep_hem
         mod_dir = os.path.join(scripts_dir, LOCAL_MODULES_DIR)
         if LOCAL_LOADER in found:
             found[LOCAL_LOADER] = max(found.values())
-            if os.path.isdir(mod_dir):
-                for m in os.listdir(mod_dir):
-                    if m.endswith(".js"):
-                        found[LOCAL_LOADER] = max(found[LOCAL_LOADER], int(os.path.getmtime(os.path.join(mod_dir, m))))
+            # Sunyaad: its folder (scripts/sunyaad/) counts like the local modules.
+            for d in (mod_dir, os.path.join(scripts_dir, "sunyaad")):
+                if os.path.isdir(d):
+                    for m in os.listdir(d):
+                        if m.endswith(".js"):
+                            found[LOCAL_LOADER] = max(found[LOCAL_LOADER], int(os.path.getmtime(os.path.join(d, m))))
         return found
 
     stamps = await hass.async_add_executor_job(_present)

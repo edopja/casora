@@ -2017,7 +2017,12 @@ class CasoraSmartRow extends HTMLElement {
   }
 }
 
-customElements.define('casora-smart-row', CasoraSmartRow);
+// Sunyaad: its grouped tile row (scripts/sunyaad/rows.js) takes the name 'casora-smart-row' and draws
+// this row inside it as 'casora-smart-row-classic'. If that file fails to load, this row keeps the name.
+customElements.define('casora-smart-row-classic', CasoraSmartRow);
+import('/casora_scripts/sunyaad/rows.js')
+  .catch((e) => console.error('[sunyaad] rows.js failed, using Casora\'s row', e))
+  .finally(() => { if (!customElements.get('casora-smart-row')) customElements.define('casora-smart-row', class extends CasoraSmartRow {}); });
 
 window.customCards = window.customCards || [];
 window.customCards.push({

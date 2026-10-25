@@ -258,8 +258,8 @@
       const cs = this._cs;
       if (!cs || cs.busy || !this._csDirty()) return;
       const price = cs.O && cs.O.price_kwh;
-      if (price !== undefined && (typeof price !== "number" || isNaN(price) || price < 0 || price > 2)) {
-        cs.err = t("The electricity price must be between 0 and 2 €/kWh.");
+      if (price !== undefined && (typeof price !== "number" || isNaN(price) || price < 0 || price > 100000)) {
+        cs.err = t("The electricity price must be a number of 0 or more (your currency per kWh).");
         this._csRepaint();
         return;
       }
@@ -543,7 +543,7 @@
         inp.value = O.price_kwh != null ? String(O.price_kwh).replace(".", decimalSep(this)) : "";
         inp.setAttribute("aria-label", t("Price per kWh"));
         const pr = this._flowRow(g, { title: t("Price per kWh"),
-          sub: eText ? t("From the Energy dashboard: {v} €/kWh").replace("{v}", eText) : null });
+          sub: eText ? t("From the Energy dashboard: {v} per kWh").replace("{v}", eText) : null });
         const sub = pr.row.querySelector(".rtext > span");
         if (sub) {
           sub.setAttribute("data-no-i18n", "");
@@ -555,7 +555,12 @@
           if (sub) sub.hidden = !!v;
           this._csBar();
         };
-        wrap.append(inp, el("span", "", "€/kWh"));
+        // Sunyaad: the unit follows Home Assistant's currency (J$/kWh, $/kWh …), not always €.
+        const cur = (this._hass && this._hass.config && this._hass.config.currency) || "EUR";
+        let sym = cur;
+        try { sym = (0).toLocaleString(undefined, { style: "currency", currency: cur, currencyDisplay: "narrowSymbol" }).replace(/[\d.,\s]/g, ""); } catch (e) { /* code */ }
+        if (cur === "JMD") sym = "J$";
+        wrap.append(inp, el("span", "", sym + "/kWh"));
         pr.row.appendChild(wrap);
       } else if (page === "update_push") {
         // Push on new Casora versions (update_push.py): phones only (mobile_app), empty = off.

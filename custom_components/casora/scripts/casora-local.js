@@ -119,6 +119,8 @@ const MODULES = [
   '29-eigene-badges',
   '30-fridge',
   '31-velair',
+  // Sunyaad: its own folder (scripts/sunyaad/), loaded last so it builds on Casora's modules.
+  '../sunyaad/sunyaad',
 ];
 
 const v = new URL(import.meta.url).searchParams.get('v') || String(Date.now());

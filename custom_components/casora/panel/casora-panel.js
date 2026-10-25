@@ -825,6 +825,8 @@ function markPhoneManaged(cfg, showBell, showAssist, rooms) {
           if (hv.casora_greeting && Array.isArray(hv.casora_greeting_people) && hv.casora_greeting_people.length) {
             c.variables.casora_greeting_people = hv.casora_greeting_people.slice();
           } else delete c.variables.casora_greeting_people;
+          // Sunyaad: the smart greeting's entities go along (panel/sunyaad-studio.js).
+          if (window.sunyaadStudio) window.sunyaadStudio.phoneVars(hv, c.variables);
         }
       }
       walk(c.cards);
@@ -2542,6 +2544,8 @@ const SECTIONS = [
     fields: [{ key: "custom_badges", label: "Own badges", type: "custombadges", always: true }],
   },
 ];
+// Sunyaad: its sections and fields (panel/sunyaad-studio.js).
+if (window.sunyaadStudio) window.sunyaadStudio.sections(SECTIONS);
 
 // Devices an own badge can show (any domain with a readable state).
 const CUSTOM_BADGE_DOMAINS = ["sensor", "binary_sensor", "light", "switch", "input_boolean", "input_number", "input_text",
@@ -12033,7 +12037,7 @@ class CasoraPanel extends HTMLElement {
           <span class="rt-label"></span>
           <span class="rt-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
         </button>
-        <h1 id="brand">Casora<span class="ver"></span></h1>
+        <h1 id="brand" title="Built on Casora by SH1FT-W (MIT)">Sunyaad<span class="ver"></span></h1>
         <div class="spacer"></div>
         <button id="diffs" class="ghost diffs" hidden><span class="ddot"></span><span class="s-long"></span><span class="s-short"></span></button>
         <button id="peekbtn" class="ghost peekbtn" type="button" aria-pressed="false" title="Show the preview">
@@ -14126,13 +14130,13 @@ class CasoraPanel extends HTMLElement {
     // Gibt es „Casora“ schon (auch als Titel in der Seitenleiste), „Casora 2“ usw. vorschlagen – wie der Umzug.
     const takenNames = new Set((this._dashList || []).map((d) => (d.title || "").trim())
       .concat(Object.values((this._hass && this._hass.panels) || {}).map((p) => (p.title || "").trim())));
-    let freeTitle = "Casora";
+    let freeTitle = "Sunyaad";
     for (let n = 2; takenNames.has(freeTitle); n++) freeTitle = "Casora " + n;
     const titleIn = this._flowRow(dash, { title: "Name", input: freeTitle }).input;
 
     this._flowCancel(s.acts);
     this._flowButton(s.acts, "Create Dashboard", () => {
-      const title = (titleIn.value || "").trim() || "Casora";
+      const title = (titleIn.value || "").trim() || "Sunyaad";
       const url_path = this._flowPath(title, "casora-dashboard", "dashboard");
       const picked = [...list.querySelectorAll('[aria-checked="true"]')]
         .map((r) => r.dataset.name);
@@ -14279,7 +14283,7 @@ class CasoraPanel extends HTMLElement {
     if (!s || !this._canAddMobile()) return;
     const mpath = mobilePathOf(this._dashUrl);
     const entry = (this._dashList || []).find((d) => d.url_path === this._dashUrl);
-    const title = (entry && entry.title) || "Casora";
+    const title = (entry && entry.title) || "Sunyaad";
     const rooms = s.compact.rooms || [];
 
     const yes = await this._ask({
@@ -18154,6 +18158,13 @@ class CasoraPanel extends HTMLElement {
 
         if (f.type === "image") {
           this._imageField(room, row, fs, pane);
+          return;
+        }
+
+        // Sunyaad: "Tiles & areas" (panel/sunyaad-studio.js).
+        if (f.type === "sunyaad" && this._sunyaadField) {
+          row.remove();
+          this._sunyaadField(room, fs, (k, v) => setVar(k, v, f));
           return;
         }
 
@@ -25527,6 +25538,8 @@ class CasoraPanel extends HTMLElement {
         tiles.appendChild(this._paintTile(tile, ti, room));
       });
     this._applyMiniSort(false, tiles);
+    // Sunyaad: the preview draws its banner and tiles (panel/sunyaad-studio.js).
+    if (this._sunyaadPreview) this._sunyaadPreview(room, badges, tiles);
 
     }
 

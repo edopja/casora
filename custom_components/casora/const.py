@@ -6,9 +6,9 @@ from pathlib import Path
 DOMAIN = "casora"
 # Casoras öffentliches Repo – Updates und Karten-Updates kommen anonym aus dessen
 # Releases (update_source.py).
-UPDATE_REPO = "SH1FT-W/casora"
+UPDATE_REPO = "edopja/casora"  # Sunyaad fork: never offer upstream Casora over it
 # Its GitHub id: HACS keys the repository's device and update entity by it (update.hacs_repo_id).
-UPDATE_REPO_ID = "1404244036"
+UPDATE_REPO_ID = ""  # Sunyaad: looked up in the device registry (update.hacs_repo_id)
 
 # manifest.json is the single source of truth: HACS reads it.
 VERSION = json.loads(
@@ -61,7 +61,7 @@ PHOTO_URL_BASE = "/api/casora/photo"
 
 # The panel keeps the url it was given in 2.0.5; only its title changed.
 PANEL_URL = "casora-studio"
-PANEL_TITLE = "Casora Studio"
+PANEL_TITLE = "Sunyaad Studio"
 PANEL_ICON = "mdi:view-dashboard-edit"
 
 # Registered at /casora before the rename, so setup removes the old one.

@@ -1382,7 +1382,9 @@
             ? this._hass.themes.darkMode : window.matchMedia('(prefers-color-scheme: dark)').matches;
           const _pic = _dark ? (_stem(this._config.image_night) || _rp + '-night') : _rp;
           const _css = window.casoraPhotoCss ? window.casoraPhotoCss(_pic, this._hass) : `url("/casora_assets/rooms/${_pic}.jpg")`;
-          this._blurLayerRoomBg = `var(--casora-wallpaper-veil-light, linear-gradient(transparent, transparent)) 0 96px / 100% 100lvh no-repeat, linear-gradient(var(--casora-filter-veil, rgba(8,10,14,0.32)), var(--casora-filter-veil, rgba(8,10,14,0.32))) center center / cover no-repeat, ${_css} center center / cover no-repeat`;
+          // Sunyaad: no night photo → the day photo shows through underneath.
+          const _day = _pic === _rp ? '' : ', ' + (window.casoraPhotoCss ? window.casoraPhotoCss(_rp, this._hass) : `url("/casora_assets/rooms/${_rp}.jpg")`) + ' center center / cover no-repeat';
+          this._blurLayerRoomBg = `var(--casora-wallpaper-veil-light, linear-gradient(transparent, transparent)) 0 96px / 100% 100lvh no-repeat, linear-gradient(var(--casora-filter-veil, rgba(8,10,14,0.32)), var(--casora-filter-veil, rgba(8,10,14,0.32))) center center / cover no-repeat, ${_css} center center / cover no-repeat${_day}`;
           Object.assign(blurLayer.style, {
             backdropFilter: 'none', webkitBackdropFilter: 'none',
             background: this._blurLayerRoomBg, filter: `blur(${ROOM_PHOTO_BLUR}) saturate(1.05)`,
