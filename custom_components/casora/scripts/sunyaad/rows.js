@@ -88,9 +88,11 @@ class CasoraSections extends HTMLElement {
 
   _rowEl() {
     if (!this._row) {
-      const st = document.createElement('style');
-      st.textContent = CS_HOST_CSS;
-      this.shadowRoot.appendChild(st);
+      if (!this.shadowRoot.querySelector('style')) {
+        const st = document.createElement('style');
+        st.textContent = CS_HOST_CSS;
+        this.shadowRoot.appendChild(st);
+      }
       this._row = document.createElement('casora-smart-row-classic');
       this.shadowRoot.appendChild(this._row);
     }
@@ -127,7 +129,7 @@ class CasoraSections extends HTMLElement {
   disconnectedCallback() { CS_LIVE.delete(this); clearInterval(this._poll); }
   _update() {
     if (!this._hass || !this._config) return;
-    const row = this._rowEl();
+    let row = this._rowEl();
     let cfg = this._config;
     if (window.CASORA_SECTIONS !== false && !this._config.classic) {
       let g = null;
@@ -139,7 +141,21 @@ class CasoraSections extends HTMLElement {
       if (g) cfg = Object.assign({}, this._config, { cards: g.cards, sort: false }), this._sigNow = g.sig;
     }
     const sig = cfg === this._config ? 'classic' : this._sigNow;
-    if (sig !== this._sig) { this._sig = sig; row.setConfig(cfg); }
+    if (sig !== this._sig) {
+      // Casora's row builds its tiles once. Same tiles with new states: each tile takes its new
+      // config. Different tiles (or Casora's own tiles before the plan was ready): a fresh row.
+      const keys = sig === 'classic' ? 'classic' : (cfg.cards || []).map((x) => x.name).join('|');
+      const built = this._row && (this._row._cardsCreated || this._row._initializing);
+      const cards = built && Array.isArray(this._row._cards) ? this._row._cards : null;
+      if (built && this._row._cardsCreated && keys === this._keys && cards && cards.length === cfg.cards.length) {
+        this._row._config = cfg;
+        cards.forEach((c, i) => { try { if (c && c.setConfig) c.setConfig(cfg.cards[i]); } catch (e) { /* keeps the old one */ } });
+      } else {
+        if (built) { this._row.remove(); this._row = null; row = this._rowEl(); }
+        row.setConfig(cfg);
+      }
+      this._sig = sig; this._keys = keys;
+    }
     row.hass = this._hass;
     if (sig !== 'classic') {
       this._glass();
