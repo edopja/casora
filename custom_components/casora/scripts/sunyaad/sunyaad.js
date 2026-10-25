@@ -119,7 +119,7 @@ import './greeting.js';
     return statCache[k].v;
   }
   function changeSum(H, ids, period, offset) {
-    var t = null; (ids || []).forEach(function (id) { var v = change(H, id, period, offset); if (v != null) t = (t || 0) + v; }); return t;
+    var t = null; (ids || []).forEach(function (id) { var v = change(H, id, period, offset); if (v != null) t = (t || 0) + Math.max(0, v); }); return t;
   }
   // kWh per day for the last 7 days (today last), summed over ids; cached 10 min.
   var dayCache = {};
