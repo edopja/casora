@@ -357,8 +357,12 @@ const SMART_ROW = "custom:casora-smart-row";
 // reads them from its own config. Written on every save so both stay in step.
 function sunyaadRow(row, vars) {
   const v = vars || {};
-  if (Array.isArray(v.sunyaad_areas) && v.sunyaad_areas.length) row.sunyaad_rooms = v.sunyaad_areas.slice();
-  else delete row.sunyaad_rooms;
+  // Unchanged areas keep the form they were saved in ({name, area} or the area id): the Studio
+  // only opens a dashboard it can write back exactly (round trip check).
+  const ids = (x) => (Array.isArray(x) ? x : []).map((r) => (r && typeof r === "object" ? r.area : r)).join("|");
+  if (Array.isArray(v.sunyaad_areas) && v.sunyaad_areas.length) {
+    if (ids(row.sunyaad_rooms) !== ids(v.sunyaad_areas)) row.sunyaad_rooms = v.sunyaad_areas.slice();
+  } else delete row.sunyaad_rooms;
   if (Array.isArray(v.sunyaad_tiles) && v.sunyaad_tiles.length) row.sunyaad_tiles = v.sunyaad_tiles.slice();
   else delete row.sunyaad_tiles;
   return row;
