@@ -222,13 +222,23 @@ import './greeting.js';
   // Set once on the page; every Sunyaad panel inside a pop-up inherits it.
   var themeWas = null;
   function theme(H) {
-    var dark = H && H.themes && typeof H.themes.darkMode === 'boolean' ? H.themes.darkMode
-      : !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
-    if (dark === themeWas) return;
-    themeWas = dark;
+    // The theme's own pop-up text colour (Casora, Casora Soft …) decides; HA's dark mode otherwise.
+    var rgb = null, ink = null;
+    try {
+      var v = getComputedStyle(document.documentElement).getPropertyValue('--casora-popup-tiles-text-primary').trim();
+      var m = v.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+      if (m) { rgb = m[1] + ',' + m[2] + ',' + m[3]; ink = v; }
+    } catch (e) { /* no styles yet */ }
+    if (!rgb) {
+      var dark = H && H.themes && typeof H.themes.darkMode === 'boolean' ? H.themes.darkMode
+        : !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+      rgb = dark ? '255,255,255' : '28,28,30'; ink = dark ? '#fff' : '#1c1c1e';
+    }
+    if (rgb + ink === themeWas) return;
+    themeWas = rgb + ink;
     var st = document.documentElement.style;
-    st.setProperty('--sy-rgb', dark ? '255,255,255' : '28,28,30');
-    st.setProperty('--sy-ink', dark ? '#fff' : '#1c1c1e');
+    st.setProperty('--sy-rgb', rgb);
+    st.setProperty('--sy-ink', ink);
   }
   window.sunyaadTheme = theme;
   function define(tag, render) {
