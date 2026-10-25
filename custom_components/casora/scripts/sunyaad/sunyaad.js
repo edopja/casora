@@ -1531,3 +1531,6 @@ import './greeting.js';
   window.addEventListener('location-changed', () => setTimeout(tick, 300));
   setTimeout(tick, 800);
 })();
+
+// Tile rows drawn before this file loaded draw again with the plan (rows.js).
+try { window.dispatchEvent(new Event('sunyaad-ready')); } catch (e) { /* no window (tests) */ }

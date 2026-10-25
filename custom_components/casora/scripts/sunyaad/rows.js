@@ -70,6 +70,9 @@ const CS_TILE_GLASS = `
   ha-card::after { opacity: 0 !important; }
 `;
 
+// Rows on screen: drawn again once sunyaad.js (the plan) has loaded, which can be after their first draw.
+const CS_LIVE = new Set();
+window.addEventListener('sunyaad-ready', () => CS_LIVE.forEach((r) => { r._sig = null; r._update(); }));
 class CasoraSections extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: 'open' }); this._sig = null; }
   static getConfigElement() { return document.createElement('div'); }
@@ -110,12 +113,29 @@ class CasoraSections extends HTMLElement {
     };
     walk(root, 0);
   }
+  // The dashboard may pass hass only when the row's own tiles change; Sunyaad's tiles cover a whole
+  // room, so the row also picks up Home Assistant's current state every few seconds.
+  connectedCallback() {
+    CS_LIVE.add(this);
+    clearInterval(this._poll);
+    this._poll = setInterval(() => {
+      let h = null;
+      try { const ha = document.querySelector('home-assistant'); h = ha && ha.hass; } catch (e) { /* none */ }
+      if (h && h !== this._hass && h.states) { this._hass = h; this._update(); }
+    }, 3000);
+  }
+  disconnectedCallback() { CS_LIVE.delete(this); clearInterval(this._poll); }
   _update() {
     if (!this._hass || !this._config) return;
     const row = this._rowEl();
     let cfg = this._config;
     if (window.CASORA_SECTIONS !== false && !this._config.classic) {
-      const g = this._grouped();
+      let g = null;
+      let bad = !window.sunyaadPagePlan;
+      try { g = this._grouped(); } catch (e) { bad = true; console.error('[sunyaad] tile row', e); }
+      // Not ready yet (plan still loading, Home Assistant still filling in): try again shortly.
+      clearTimeout(this._retry);
+      if (bad && (this._tries = (this._tries || 0) + 1) < 40) this._retry = setTimeout(() => { this._sig = null; this._update(); }, 750);
       if (g) cfg = Object.assign({}, this._config, { cards: g.cards, sort: false }), this._sigNow = g.sig;
     }
     const sig = cfg === this._config ? 'classic' : this._sigNow;
