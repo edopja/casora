@@ -1006,6 +1006,18 @@
     return out;
   }
   window.sunyaadMergedPlan = mergedPlan;
+  // Tiles of a combined page (casora-smart-row) name their pop-up (sunyaad_open); open it here,
+  // before Casora's tile handler sees the tap.
+  if (!window._sunyaadTapHook) {
+    window._sunyaadTapHook = true;
+    window.addEventListener('ll-custom', function (ev) {
+      var id = ev.detail && ev.detail.sunyaad_open, cfg = id && window._sunyaadTiles && window._sunyaadTiles[id];
+      if (!cfg || !window.casoraPopup) return;
+      ev.stopImmediatePropagation(); ev.stopPropagation();
+      var lt = window._casoraLastTile;
+      window.casoraPopup.open(Object.assign({}, cfg, lt && Date.now() - lt.at < 2000 ? { src: lt.el } : {}));
+    }, true);
+  }
   // A normal room for the Studio preview: its tiles in the groups the dashboard shows
   // (casora-smart-row: Lights · Climate · Appliances · Entertainment · Sensors).
   var ROOM_GROUPS = [
