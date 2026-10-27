@@ -83,6 +83,13 @@
   function applyContentLeft() {
     var area = findPanelArea();
     if (!area) return;
+    // Sunyaad: the panel can appear long after the sidebar (a slow start over the cloud, the
+    // tablet app waking up). Watched only from the sidebar, the edge stayed 0 and the room and
+    // its tiles slid under a docked sidebar. Watch the panel itself once it is there.
+    if (!area._casoraLeftWatched) {
+      area._casoraLeftWatched = true;
+      try { new ResizeObserver(applyContentLeft).observe(area); } catch (e) {}
+    }
     var r = area.getBoundingClientRect();
     if (r.width <= 0) return;
     var left = Math.max(0, Math.round(r.left));
@@ -135,12 +142,13 @@
     } catch (e) {}
   }
 
+  // Ready once both the sidebar and the panel area are there (Sunyaad: the panel too).
   function initSidebar() {
-    if (applySidebar()) { setupSidebarObservers(); return; }
+    if (applySidebar() && lastContentLeft >= 0) { setupSidebarObservers(); return; }
     var attempts = 0;
     var iv = setInterval(function () {
-      if (++attempts > 60) { clearInterval(iv); return; }
-      if (applySidebar()) { clearInterval(iv); setupSidebarObservers(); }
+      if (++attempts > 240) { clearInterval(iv); return; }
+      if (applySidebar()) { setupSidebarObservers(); if (lastContentLeft >= 0) clearInterval(iv); }
     }, 250);
   }
 
@@ -302,6 +310,9 @@
 
   window.addEventListener('resize', queueRecompute);
   window.addEventListener('resize', applyContentLeft);
+  // Sunyaad: a page change or the app coming back can move the panel without a resize.
+  window.addEventListener('location-changed', function () { setTimeout(applyContentLeft, 60); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(applyContentLeft, 60); });
   window.addEventListener('location-changed', function () {
     // Drop stale observations and re-discover once the new view has rendered.
     headerObservedEls = [];

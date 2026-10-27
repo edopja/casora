@@ -19,7 +19,8 @@ marked hooks (search for `Sunyaad`), so a new Casora version can be taken over b
 | --- | --- |
 | `scripts/smart-row.js` | Casora's row is defined as `casora-smart-row-classic`; imports `sunyaad/rows.js`, falls back to Casora's row under the old name if that fails |
 | `scripts/casora-local.js` | `'../sunyaad/sunyaad'` at the end of `MODULES` |
-| `scripts/filter-overlay.js` | Room photo: the day photo under the night photo (no night photo → day photo) |
+| `scripts/filter-overlay.js` | Room photo: the day photo under the night photo (no night photo → day photo); a phone room page shows Sunyaad's tiles (`window.sunyaadRoomCards`) and keeps their text current (`_syRefresh`) |
+| `scripts/layout-offsets.js` | The panel's left edge is watched on the panel itself, so a tablet's room and tiles start beside a docked sidebar even when the panel loads late |
 | `scripts_view.py` | `sunyaad-studio.js` in `STUDIO_MODULES`, before `casora-panel.js` |
 | `__init__.py` | `scripts/sunyaad/` counts for the loader's `?v=` stamp |
 | `panel/casora-panel.js` | `sunyaadStudio.sections(SECTIONS)`, `sunyaadStudio.phoneVars(...)`, field type `sunyaad`, `_sunyaadPreview(...)`, brand name |
@@ -27,6 +28,13 @@ marked hooks (search for `Sunyaad`), so a new Casora version can be taken over b
 | `panel/casora-panel-settings.js`, `options.py` | Electricity price in any currency (up to 100 000 per kWh) |
 | `const.py`, `update.py` | Updates come from `edopja/casora`; the HACS repository id is looked up |
 | `manifest.json`, `hacs.json`, `translations/` | Name: Sunyaad |
+
+## Phone dashboard
+
+The phone dashboard (`<name>-mobile`) is one row holding the whole page: greeting, badges, the room
+pages (`casora-filter-overlay`) and the room sections. That row and the rows inside it stay Casora's.
+A room page shows the same tiles as the room's desktop page: `rows.js` reads the desktop pair once
+(areas, tiles, cards per page name) and `window.sunyaadRoomCards` builds the tiles.
 
 ## Where a page's settings live
 

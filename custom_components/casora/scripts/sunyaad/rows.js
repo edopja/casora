@@ -70,6 +70,88 @@ const CS_TILE_GLASS = `
   ha-card::after { opacity: 0 !important; }
 `;
 
+// A phone dashboard's page is one row holding everything (greeting, badges, the room pages, the
+// room sections): it stays Casora's own row, and so do the rows inside it. The room page
+// (filter-overlay.js) draws Sunyaad's tiles for its room instead (window.sunyaadRoomCards).
+function isPageRow(c) {
+  return (c.cards || []).some((x) => x && (x.type === 'custom:casora-filter-overlay' || x.type === 'custom:casora-smart-row'
+    || /^casora_mobile_/.test(String(x.template || ''))));
+}
+const PHONE_BOARD = /^\/[^/]+[-_]mobile(\/|$)/i;
+function onPhoneBoard() { return PHONE_BOARD.test(location.pathname || ''); }
+
+// The tiles of a plan as Casora tiles; each only names its pop-up (sunyaad_open), the content
+// stays in window._sunyaadTiles and sunyaad.js opens it on tap.
+function planCards(plan, idBase) {
+  const reg = window._sunyaadTiles || (window._sunyaadTiles = {});
+  const cards = [], sig = [];
+  plan.forEach((t) => {
+    const id = idBase + ':' + t.key;
+    reg[id] = { title: t.name, content: t.content, dismissable: true, dismiss_on_background: true };
+    const act = { action: 'fire-dom-event', haptic: 'light', sunyaad_open: id };
+    cards.push({ type: 'custom:button-card', template: 'casora_entity', entity: (t.active || [])[0] || 'sun.sun',
+      name: t.name, show_state: true, state_display: t.state, variables: { icon: t.icon, active_entities: t.active || [] },
+      tap_action: act, hold_action: act, icon_tap_action: act });
+    sig.push(t.key + ':' + t.state);
+  });
+  return { cards, sig: sig.join('|') };
+}
+
+// Every tile stays frosted glass (like an off tile), even when its devices are on.
+function glassTiles(root) {
+  const walk = (node, depth) => {
+    if (!node || depth > 8 || !node.querySelectorAll) return;
+    node.querySelectorAll('*').forEach((el) => {
+      if (el.tagName === 'BUTTON-CARD') {
+        const sr = el.shadowRoot;
+        if (sr && sr.querySelector('ha-card') && !sr.getElementById('casora-sections-glass')) {
+          const st = document.createElement('style'); st.id = 'casora-sections-glass'; st.textContent = CS_TILE_GLASS; sr.appendChild(st);
+        }
+      } else if (el.shadowRoot) walk(el.shadowRoot, depth + 1);
+    });
+  };
+  walk(root, 0);
+}
+window.sunyaadGlass = glassTiles;
+
+// The desktop dashboard's room pages (the phone one is its pair, <name>-mobile): which areas and
+// tiles each page has, its tile row's cards and its photo, by page name. Read once per phone page.
+const DESK = { key: null, rooms: null };
+function deskRooms(H) {
+  const seg = String(location.pathname || '').split('/')[1] || '';
+  if (!PHONE_BOARD.test('/' + seg + '/')) return null;
+  const desk = seg.replace(/[-_]mobile$/i, '');
+  if (DESK.key !== desk && H && H.connection) {
+    DESK.key = desk; DESK.rooms = null;
+    H.connection.sendMessagePromise({ type: 'lovelace/config', url_path: desk }).then((cfg) => {
+      const out = {};
+      ((cfg && cfg.views) || []).forEach((v) => {
+        const cards = v.cards || [];
+        const hdr = cards.find((c) => c && [].concat(c.template || []).indexOf('casora_room') >= 0);
+        const row = cards.find((c) => c && c.type === 'custom:casora-smart-row');
+        const vars = (hdr && hdr.variables) || {};
+        const name = String(vars.room_name || (hdr && hdr.name) || v.title || '').trim().toLowerCase();
+        if (name && row) out[name] = { rooms: row.sunyaad_rooms, tiles: row.sunyaad_tiles, cards: row.cards, image: vars.image, image_night: vars.image_night };
+      });
+      DESK.rooms = out;
+      window.dispatchEvent(new Event('sunyaad-desk-rooms'));
+    }, () => { DESK.rooms = {}; });
+  }
+  return DESK.rooms;
+}
+window.sunyaadDeskRoom = (H, name) => { const r = deskRooms(H); return (r && r[String(name || '').trim().toLowerCase()]) || null; };
+
+// Sunyaad's tiles for a phone room page: the same tiles as the room's desktop page.
+window.sunyaadRoomCards = (H, name, cards) => {
+  const P = window.sunyaadPagePlan;
+  if (!P || !H || !H.states) return null;
+  const desk = window.sunyaadDeskRoom(H, name);
+  const own = (desk && Array.isArray(desk.cards) && desk.cards.length ? desk.cards : cards || []).filter((x) => !userHides(x, H.user));
+  const plan = P(H, { rooms: desk && desk.rooms, tiles: desk && desk.tiles, cards: own, name });
+  if (!plan.length) return null;
+  return planCards(plan, 'm:' + String(name)).cards;
+};
+
 // Rows on screen: drawn again once sunyaad.js (the plan) has loaded, which can be after their first draw.
 const CS_LIVE = new Set();
 window.addEventListener('sunyaad-ready', () => CS_LIVE.forEach((r) => { r._sig = null; r._update(); }));
@@ -98,23 +180,7 @@ class CasoraSections extends HTMLElement {
     }
     return this._row;
   }
-  // Every tile stays frosted glass (like an off tile), even when its devices are on.
-  _glass() {
-    const root = this._row && this._row.shadowRoot;
-    if (!root) return;
-    const walk = (node, depth) => {
-      if (!node || depth > 6) return;
-      node.querySelectorAll('*').forEach((el) => {
-        if (el.tagName === 'BUTTON-CARD') {
-          const sr = el.shadowRoot;
-          if (sr && sr.querySelector('ha-card') && !sr.getElementById('casora-sections-glass')) {
-            const st = document.createElement('style'); st.id = 'casora-sections-glass'; st.textContent = CS_TILE_GLASS; sr.appendChild(st);
-          }
-        } else if (el.shadowRoot) walk(el.shadowRoot, depth + 1);
-      });
-    };
-    walk(root, 0);
-  }
+  _glass() { if (this._row && this._row.shadowRoot) glassTiles(this._row.shadowRoot); }
   // The dashboard may pass hass only when the row's own tiles change; Sunyaad's tiles cover a whole
   // room, so the row also picks up Home Assistant's current state every few seconds.
   connectedCallback() {
@@ -129,9 +195,10 @@ class CasoraSections extends HTMLElement {
   disconnectedCallback() { CS_LIVE.delete(this); clearInterval(this._poll); }
   _update() {
     if (!this._hass || !this._config) return;
+    if (onPhoneBoard()) deskRooms(this._hass);
     let row = this._rowEl();
     let cfg = this._config;
-    if (window.CASORA_SECTIONS !== false && !this._config.classic) {
+    if (window.CASORA_SECTIONS !== false && !this._config.classic && !isPageRow(this._config) && !onPhoneBoard()) {
       let g = null;
       let bad = !window.sunyaadPagePlan;
       try { g = this._grouped(); } catch (e) { bad = true; console.error('[sunyaad] tile row', e); }
@@ -179,18 +246,7 @@ class CasoraSections extends HTMLElement {
       home: c.sunyaad_home === true || (c.sunyaad_home !== false && /\/home\/?$/.test(path)),
     });
     if (!plan.length) return null;
-    const reg = window._sunyaadTiles || (window._sunyaadTiles = {});
-    const cards = [], sig = [];
-    plan.forEach((t) => {
-      const id = 'p:' + path + ':' + t.key;
-      reg[id] = { title: t.name, content: t.content, dismissable: true, dismiss_on_background: true };
-      const act = { action: 'fire-dom-event', haptic: 'light', sunyaad_open: id };
-      cards.push({ type: 'custom:button-card', template: 'casora_entity', entity: (t.active || [])[0] || 'sun.sun',
-        name: t.name, show_state: true, state_display: t.state, variables: { icon: t.icon, active_entities: t.active || [] },
-        tap_action: act, hold_action: act, icon_tap_action: act });
-      sig.push(t.key + ':' + t.state);
-    });
-    return { cards, sig: sig.join('|') };
+    return planCards(plan, 'p:' + path);
   }
 }
 if (!customElements.get('casora-smart-row')) customElements.define('casora-smart-row', CasoraSections);

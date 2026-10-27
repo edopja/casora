@@ -1172,6 +1172,7 @@
       this._favPopupDone = false;
       this._blurLayerEl = this._overlayEl = this._contentEl = null;
       this._cardEls = [];
+      this._syTiles = null;
       this._scalableEls  = [];
       this._headerWrapper = null;
       this._initialized  = false;
@@ -1204,6 +1205,26 @@
       }
       this._config = config;
       if (this.isConnected && !this._initialized && !this._initializing) this._init();
+    }
+
+    // Sunyaad: the room page's tiles say what the room is doing now ("Charging · 3.3 kW"); at most
+    // every two seconds, only the tiles whose text changed take their new config.
+    _syRefresh(h) {
+      const now = Date.now();
+      if (this._syAt && now - this._syAt < 2000) return;
+      this._syAt = now;
+      const t = this._syTiles;
+      let next = null;
+      try { next = window.sunyaadRoomCards ? window.sunyaadRoomCards(h, t.name, t.raw) : null; } catch (_) { return; }
+      if (!next || next.length !== t.els.length) return;
+      let changed = false;
+      next.forEach((c, i) => {
+        const was = t.cfgs[i];
+        if (!was || c.name !== was.name) return;
+        if (c.state_display === was.state_display && JSON.stringify(c.variables) === JSON.stringify(was.variables)) return;
+        try { t.els[i].setConfig(c); t.els[i].hass = h; t.cfgs[i] = c; changed = true; } catch (_) { /* keeps the old text */ }
+      });
+      if (changed && window.sunyaadGlass) { const ce = this._contentEl; setTimeout(() => window.sunyaadGlass(ce), 50); }
     }
 
     // „Größe am Handy: Automatisch“ (1.5) im Raum: wie smart-row._autoSize – groß, solange
@@ -1269,6 +1290,7 @@
       v = F ? F.apply(v) : v;
       this._hass = v;
       for (const el of this._cardEls) { try { el.hass = v; } catch (_) {} }
+      if (this._syTiles && this._showing) this._syRefresh(v);
       if (!this._autoRaf) this._autoRaf = requestAnimationFrame(() => { this._autoRaf = null; this._autoSizeGrid(); });
       const filter = v?.states?.['input_select.casora_mobile_filter']?.state;
       // Offene Raumseite: schaltet eine Kachel um, rückt sie wie in der Reihe nach kurzer Pause
@@ -1648,6 +1670,8 @@
               // Wie die Reihe am Desktop: aktive Kacheln vorn, außer die Reihe sortiert nicht (sort: false).
               rooms.push({ ...pending, cards: (hsr._config?.cards || []).filter((c) => !_cardOffOnPhone(c)), sort: hsr._config?.sort !== false });
               this._roomLightIds = _lightIdsOf(rooms[rooms.length - 1].cards);
+              // Sunyaad: the room's tiles as on its desktop page (rows.js), Casora's own tiles otherwise.
+              try { rooms[rooms.length - 1].sunyaad = window.sunyaadRoomCards ? window.sunyaadRoomCards(this._hass, roomMode, rooms[rooms.length - 1].cards) : null; } catch (_) { /* Casora's tiles */ }
             }
           } else if (pending.name && !pending.fav) {
             const cards = (hsr._config?.cards || []).filter(
@@ -1731,13 +1755,13 @@
             },
           }, this._contentEl, i);
         }
-        const roomCards = room.cards.map((c) => JSON.parse(JSON.stringify(c)));
+        const roomCards = (room.sunyaad || room.cards).map((c) => JSON.parse(JSON.stringify(c)));
 
         // Casora (30.09.2026): Die Raumseite zeigt die Kacheln in der Studio-Reihenfolge
         // (room.tiles, per syncPairTiles aufs Handy übernommen). Nach Kategorien gruppiert
         // wird nur auf Wunsch (siehe _roomGroupOn).
         // Nur eine Kategorie oder sehr wenige Kacheln: flach wie bisher („Geräte“).
-        const groups = roomMode && _roomGroupOn(this._config) ? _roomGroupSplit(roomCards) : null;
+        const groups = roomMode && !room.sunyaad && _roomGroupOn(this._config) ? _roomGroupSplit(roomCards) : null;
         if (groups) {
           let first = !this._contentEl.children.length;
           for (const { key, cards } of groups) {
@@ -1762,7 +1786,13 @@
             }, this._contentEl, i);
           }
           this._appendEntityGrid(roomCards, this._contentEl, i);
-          if (room.sort === false) this._contentEl.lastElementChild._casoraNoSort = true;
+          if (room.sort === false || room.sunyaad) this._contentEl.lastElementChild._casoraNoSort = true;
+          // Sunyaad: its tiles stay frosted glass (rows.js) and follow the room (_syRefresh).
+          if (room.sunyaad) {
+            this._syTiles = { name: roomMode, raw: room.cards, cfgs: roomCards, els: this._cardEls.slice(-roomCards.length) };
+            const ce = this._contentEl;
+            if (window.sunyaadGlass) [0, 400, 1200].forEach((t) => setTimeout(() => window.sunyaadGlass(ce), t));
+          }
           i++;
         }
       }
