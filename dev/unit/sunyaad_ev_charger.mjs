@@ -41,10 +41,15 @@ const states = {
 };
 const entities = {};
 Object.keys(states).forEach((e) => { entities[e] = { entity_id: e, device_id: e.includes('fridge') ? 'dev_fridge' : 'dev_ev', name: null }; });
+// Some charger entities are not tied to the device in the registry: found by their id prefix.
+['sensor.ev_charger_power_a', 'sensor.ev_charger_current_a', 'sensor.ev_charger_voltage_a'].forEach((e) => { delete entities[e]; });
+// An inverter with a charge-current setting is not a charger.
+states['number.inv_max_charge_current'] = st(150, { min: 0, max: 250, step: 1 });
+entities['number.inv_max_charge_current'] = { entity_id: 'number.inv_max_charge_current', device_id: 'dev_inv', name: null };
 const calls = [];
 const H = {
   states, entities,
-  devices: { dev_ev: { name: 'EV Charger', area_id: 'garage' }, dev_fridge: { name: 'Fridge', area_id: 'garage' } },
+  devices: { dev_ev: { name: 'EV Charger', area_id: 'garage' }, dev_fridge: { name: 'Fridge', area_id: 'garage' }, dev_inv: { name: 'Deye Inverter', area_id: 'garage' } },
   areas: { garage: { name: 'Garage' } },
   config: { currency: 'JMD' }, themes: { darkMode: true },
   callWS: () => new Promise(() => {}),
@@ -60,6 +65,8 @@ assert.equal(ev.energy, 'sensor.ev_charger_energy');
 assert.equal(ev.last, 'sensor.ev_charger_last_charge');
 assert.equal(ev.mode, 'select.ev_charger_charging_mode');
 assert.equal(ev.sw, 'switch.ev_charger');
+assert.equal(ev.amps, 'sensor.ev_charger_current_a');
+assert.equal(ev.volt, 'sensor.ev_charger_voltage_a');
 
 const sm = window.sunyaadEvSummary(H, evs);
 assert.ok(sm.charging && /3\.4 kW/.test(sm.text), 'tile says Charging · 3.4 kW: ' + sm.text);
@@ -102,7 +109,6 @@ Object.assign(states, {
   'sensor.inv_battery_power': st(-1200, { device_class: 'power', unit_of_measurement: 'W' }),
 });
 ['sensor.inv_soc', 'sensor.inv_pv_power', 'sensor.inv_load_power', 'sensor.inv_battery_power'].forEach((e) => { entities[e] = { entity_id: e, device_id: 'dev_inv', name: null }; });
-H.devices.dev_inv = { name: 'Inverter', area_id: 'garage' };
 const H2 = { ...H, states: { ...states } };
 assert.ok(window.sunyaadSystemHere(H2, [{ area: 'garage' }]), 'garage holds the energy system');
 const sys = window.sunyaadPagePlan(H2, { rooms: [{ name: 'Garage', area: 'garage' }], tiles: ['appliances', 'energy'] }).map((t) => t.key);

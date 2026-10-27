@@ -627,9 +627,11 @@ import './greeting.js';
   });
 
   // ── EV charger ──────────────────────────────────────────────────────────────────────────
-  // A charger is found by itself: a device with a status sensor that knows "charging", or a number
-  // that sets the charging current, or a name like "EV charger" / "wallbox". Its entities are picked by
-  // device class, so any brand works. A charger is not an appliance: it gets its own tile and pop-up.
+  // A charger is found by itself: a device with a status sensor that knows "charging", or a name like
+  // "EV charger" / "wallbox". An inverter or battery (an energy source, or a name saying so) never is, even
+  // with a charge-current setting. Its entities are picked by device class, so any brand works; entities
+  // the registry does not tie to the device but that share its id prefix (ev_charger_*) count too.
+  // A charger is not an appliance: it gets its own tile and pop-up.
   var EV_NAME = /(^|[^a-z])ev([^a-z]|$)|ev.?charg|wallbox|evse|charge.?point|charging.?station/i;
   var EV_STATUS = {
     charging: 'Charging', available: 'Not plugged in', plugged_in: 'Plugged in', connected: 'Plugged in', waiting: 'Waiting',
@@ -640,12 +642,19 @@ import './greeting.js';
     if (evCache.H === H) return evCache.out;
     var R = H.entities || {}, D = H.devices || {}, byDev = {}, out = [];
     Object.keys(R).forEach(function (e) { var r = R[e]; if (r && r.device_id && H.states[e]) (byDev[r.device_id] = byDev[r.device_id] || []).push(e); });
+    var src = sourceDevices(H);
     Object.keys(byDev).forEach(function (d) {
       var ents = byDev[d], dv = D[d] || {}, name = dv.name_by_user || dv.name || '';
+      if (src[d] || /inverter|battery|bms|solar/i.test(name)) return;
       var opts = function (e) { return ((H.states[e].attributes || {}).options) || []; };
       var status = ents.find(function (e) { return e.indexOf('sensor.') === 0 && opts(e).indexOf('charging') >= 0; });
+      if (!status && !EV_NAME.test(name)) return;
+      // Same id prefix (ev_charger_status, ev_charger_power_a …): one device, whatever the registry says.
+      var obj = ents.map(function (e) { return e.slice(e.indexOf('.') + 1); }), pre = obj[0] || '';
+      obj.forEach(function (o) { while (pre && o.indexOf(pre) !== 0) pre = pre.slice(0, -1); });
+      pre = obj.indexOf(pre) >= 0 ? pre + '_' : pre.slice(0, pre.lastIndexOf('_') + 1);
+      if (pre.length >= 4) Object.keys(H.states).forEach(function (e) { if (ents.indexOf(e) < 0 && e.slice(e.indexOf('.') + 1).indexOf(pre) === 0) ents.push(e); });
       var current = ents.find(function (e) { return e.indexOf('number.') === 0 && /charg\w*_curr|curr\w*_limit|max\w*_curr|charg\w*_amp/.test(e); });
-      if (!status && !current && !EV_NAME.test(name)) return;
       var sens = function (cls) { return ents.filter(function (e) { return e.indexOf('sensor.') === 0 && dclass(H, e) === cls && num(H, e) != null; }); };
       var maxBy = function (l, f) { var best = null, bv = -Infinity; l.forEach(function (e) { var v = f(e); if (v != null && Math.abs(v) > bv) { bv = Math.abs(v); best = e; } }); return best; };
       var power = maxBy(sens('power'), function (e) { return watts(H, e); });
