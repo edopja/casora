@@ -224,7 +224,8 @@ class CasoraSections extends HTMLElement {
       this._sig = sig; this._keys = keys;
     }
     row.hass = this._hass;
-    if (sig !== 'classic') {
+    // Glass tiles too in the phone's own rows (Favorites, room sections), not in its page row.
+    if (sig !== 'classic' || (onPhoneBoard() && !isPageRow(this._config))) {
       this._glass();
       clearTimeout(this._glassT);
       this._glassT = setTimeout(() => this._glass(), 600);
