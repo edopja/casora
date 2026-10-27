@@ -2020,7 +2020,8 @@ class CasoraSmartRow extends HTMLElement {
 // Sunyaad: its grouped tile row (scripts/sunyaad/rows.js) takes the name 'casora-smart-row' and draws
 // this row inside it as 'casora-smart-row-classic'. If that file fails to load, this row keeps the name.
 customElements.define('casora-smart-row-classic', CasoraSmartRow);
-import('/casora_scripts/sunyaad/rows.js')
+// With this file's ?v= stamp, so a new version is not served from the browser's cache.
+import('/casora_scripts/sunyaad/rows.js?v=' + (new URL(import.meta.url).searchParams.get('v') || '0'))
   .catch((e) => console.error('[sunyaad] rows.js failed, using Casora\'s row', e))
   .finally(() => { if (!customElements.get('casora-smart-row')) customElements.define('casora-smart-row', class extends CasoraSmartRow {}); });
 
