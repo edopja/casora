@@ -540,7 +540,8 @@ import './greeting.js';
     var s = H.states[id], a = (s && s.attributes) || {}, name = deviceName(H, id), key = (name + ' ' + id).toLowerCase();
     var sib = siblings(H, id);
     var find = function (cls, extra) { return sib.find(function (e) { return e.indexOf('sensor.') === 0 && dclass(H, e) === cls && (!extra || extra(e)); }) || null; };
-    var power = find('power'), en = find('energy', function (e) { return ((H.states[e].attributes || {}).state_class || '') === 'total_increasing' || /energy/.test(e); });
+    var pw = sib.filter(function (e) { return e.indexOf('sensor.') === 0 && dclass(H, e) === 'power' && watts(H, e) != null; });
+    var power = pw.reduce(function (b, e) { return b == null || Math.abs(watts(H, e)) > Math.abs(watts(H, b)) ? e : b; }, null) || find('power'), en = find('energy', function (e) { return ((H.states[e].attributes || {}).state_class || '') === 'total_increasing' || /energy/.test(e); });
     var kind = KIND.find(function (k) { return k[0].test(key); });
     return { id: id, name: name, on: s && s.state === 'on', unavail: !s || s.state === 'unavailable', power: power, energy: en,
       volt: find('voltage'), amps: find('current'), icon: a.icon || (kind ? kind[1] : 'mdi:power-socket'), col: kind ? kind[2] : PALETTE[i % PALETTE.length] };
@@ -558,7 +559,7 @@ import './greeting.js';
       cards.forEach(function (x) { others.push(x); });
     } else cards.forEach(function (x) {
       var e = x && (x.entity || (x.variables && x.variables.entity));
-      if (e && /^switch\./.test(e) && H.states[e]) { if (ids.indexOf(e) < 0) ids.push(e); } else others.push(x);
+      if (e && /^switch\./.test(e) && H.states[e]) { if (ids.indexOf(e) < 0 && !isEvEntity(H, e)) ids.push(e); } else others.push(x);
     });
     var pr = price(), apps = ids.map(function (e, i) { return appliance(H, e, i); });
     var totalW = 0, totalKwh = null, sig = [];
@@ -621,6 +622,213 @@ import './greeting.js';
           list.hass = self._h; box.appendChild(list);
           self._others = list;
         }
+      },
+    };
+  });
+
+  // ── EV charger ──────────────────────────────────────────────────────────────────────────
+  // A charger is found by itself: a device with a status sensor that knows "charging", or a number
+  // that sets the charging current, or a name like "EV charger" / "wallbox". Its entities are picked by
+  // device class, so any brand works. A charger is not an appliance: it gets its own tile and pop-up.
+  var EV_NAME = /(^|[^a-z])ev([^a-z]|$)|ev.?charg|wallbox|evse|charge.?point|charging.?station/i;
+  var EV_STATUS = {
+    charging: 'Charging', available: 'Not plugged in', plugged_in: 'Plugged in', connected: 'Plugged in', waiting: 'Waiting',
+    paused: 'Paused', charged: 'Charged', finished: 'Charged', complete: 'Charged', fault: 'Fault', fault_unplugged: 'Fault', error: 'Fault',
+  };
+  var evCache = { H: null, out: [] };
+  function evChargers(H) {
+    if (evCache.H === H) return evCache.out;
+    var R = H.entities || {}, D = H.devices || {}, byDev = {}, out = [];
+    Object.keys(R).forEach(function (e) { var r = R[e]; if (r && r.device_id && H.states[e]) (byDev[r.device_id] = byDev[r.device_id] || []).push(e); });
+    Object.keys(byDev).forEach(function (d) {
+      var ents = byDev[d], dv = D[d] || {}, name = dv.name_by_user || dv.name || '';
+      var opts = function (e) { return ((H.states[e].attributes || {}).options) || []; };
+      var status = ents.find(function (e) { return e.indexOf('sensor.') === 0 && opts(e).indexOf('charging') >= 0; });
+      var current = ents.find(function (e) { return e.indexOf('number.') === 0 && /charg\w*_curr|curr\w*_limit|max\w*_curr|charg\w*_amp/.test(e); });
+      if (!status && !current && !EV_NAME.test(name)) return;
+      var sens = function (cls) { return ents.filter(function (e) { return e.indexOf('sensor.') === 0 && dclass(H, e) === cls && num(H, e) != null; }); };
+      var maxBy = function (l, f) { var best = null, bv = -Infinity; l.forEach(function (e) { var v = f(e); if (v != null && Math.abs(v) > bv) { bv = Math.abs(v); best = e; } }); return best; };
+      var power = maxBy(sens('power'), function (e) { return watts(H, e); });
+      if (!status && !current && !power) return;
+      var energies = sens('energy');
+      var energy = energies.find(function (e) { return ((H.states[e].attributes || {}).state_class) === 'total_increasing' && !/last|balance|previous/.test(e); })
+        || energies.find(function (e) { return !/last|balance|previous/.test(e); }) || null;
+      var plain = function (e) { var r = R[e]; return r && !r.entity_category; };
+      out.push({
+        device: d, name: name || friendly(H, status || current || power), area: dv.area_id || null,
+        sw: ents.find(function (e) { return e.indexOf('switch.') === 0 && plain(e) && !(R[e] || {}).name; }) || ents.find(function (e) { return e.indexOf('switch.') === 0 && plain(e); }) || null,
+        status: status || ents.find(function (e) { return e.indexOf('sensor.') === 0 && /status|state/.test(e) && num(H, e) == null; }) || null,
+        power: power, amps: maxBy(sens('current'), function (e) { return num(H, e); }), volt: maxBy(sens('voltage'), function (e) { return num(H, e); }),
+        energy: energy, last: energies.find(function (e) { return /last|previous/.test(e); }) || null,
+        temp: sens('temperature')[0] || null, current: current || null,
+        mode: ents.find(function (e) { return e.indexOf('select.') === 0 && /mode/.test(e); }) || null,
+        timer: ents.find(function (e) { return e.indexOf('number.') === 0 && /timer|delay|schedule/.test(e); }) || null,
+        problem: ents.find(function (e) { return e.indexOf('binary_sensor.') === 0 && dclass(H, e) === 'problem'; }) || null,
+        ents: ents,
+      });
+    });
+    evCache = { H: H, out: out };
+    return out;
+  }
+  // Every entity of every charger, so Appliances can leave them out.
+  function isEvEntity(H, e) { var r = (H.entities || {})[e], d = r && r.device_id; return !!d && evChargers(H).some(function (c) { return c.device === d; }); }
+  function evInArea(H, c, area) {
+    if (!area) return false;
+    if (c.area === area) return true;
+    return c.ents.some(function (e) { var r = (H.entities || {})[e]; return r && r.area_id === area; });
+  }
+  function evState(H, c) {
+    var s = c.status && H.states[c.status] ? String(H.states[c.status].state) : null, w = watts(H, c.power);
+    var probl = c.problem && H.states[c.problem] && H.states[c.problem].state === 'on';
+    var charging = s === 'charging' || (s == null && w != null && w > 100);
+    var label = probl ? 'Fault' : s && EV_STATUS[s] ? EV_STATUS[s] : s && s !== 'unknown' && s !== 'unavailable' ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ')
+      : c.sw && H.states[c.sw] ? (H.states[c.sw].state === 'on' ? 'On' : 'Off') : 'Unavailable';
+    return { s: s, w: w, charging: charging, fault: probl || /fault|error/.test(s || ''), label: label, plugged: charging || /plugged|connected|waiting|paused|charged|finished|complete/.test(s || '') };
+  }
+  // What a tile or the banner says: "Charging · 3.4 kW", "Plugged in", "Not plugged in" …
+  function evSummary(H, list) {
+    var st = list.map(function (c) { return evState(H, c); }), ch = st.filter(function (x) { return x.charging; });
+    if (ch.length) { var w = ch.reduce(function (a, x) { return a + (x.w || 0); }, 0); return { text: tr('Charging') + (w ? ' · ' + fmtW(w) : ''), active: true, charging: true }; }
+    var f = st.find(function (x) { return x.fault; }); if (f) return { text: tr('Fault'), active: true };
+    var p = st.find(function (x) { return x.plugged; }); if (p) return { text: tr(p.label), active: true };
+    return { text: tr(st[0] ? st[0].label : 'Off'), active: false };
+  }
+  window.sunyaadEvChargers = evChargers;
+  window.sunyaadEvSummary = evSummary;
+  window.sunyaadEvState = evState;
+  window.sunyaadIsEvEntity = isEvEntity;
+
+  // Preset currents for the speed chips: the charger's minimum and maximum plus the usual steps between.
+  function evPresets(lo, hi, step) {
+    var out = [lo];
+    [8, 10, 13, 16, 20, 24, 32].forEach(function (a) { if (a > lo && a < hi) out.push(a); });
+    out.push(hi);
+    out = out.filter(function (a, i) { return out.indexOf(a) === i; }).map(function (a) { return step ? Math.round(a / step) * step : a; });
+    while (out.length > 5) out.splice(Math.floor(out.length / 2), 1);
+    return out;
+  }
+  var evPending = {};
+  define('sunyaad-ev', function (H, c) {
+    var all = evChargers(H), rooms = Array.isArray(c.rooms) ? c.rooms : null;
+    var list = rooms && rooms.length ? all.filter(function (x) { return rooms.some(function (r) { return evInArea(H, x, r && r.area); }); }) : all;
+    if (!list.length) list = all;
+    if (!list.length) return { sig: 'none', html: '<div class="blk mut">' + esc(tr('No EV charger found.')) + '</div>' };
+    var pr = price(), E = energy(H), soc = num(H, E.soc), solarW = E.solarW;
+    var sig = [pr, soc == null ? '' : Math.round(soc), solarW == null ? '' : Math.round(solarW / 100)];
+    var cards = list.map(function (x) {
+      var st = evState(H, x), w = st.w, A = num(H, x.amps), V = num(H, x.volt), T = num(H, x.temp);
+      var cur = num(H, x.current), ca = x.current ? (H.states[x.current].attributes || {}) : {};
+      var lo = ca.min != null ? +ca.min : 6, hi = ca.max != null ? +ca.max : 32, step = ca.step != null ? +ca.step : 1;
+      if (evPending[x.current] != null) cur = evPending[x.current];
+      var volts = V || 230, estW = cur != null ? cur * volts : null;
+      var sess = num(H, x.energy), last = num(H, x.last), today = change(H, x.energy, 'day'), month = change(H, x.energy, 'month');
+      var hist = history(H, x.power), sp = spark(hist, 300, 56);
+      var mode = x.mode && H.states[x.mode], modeOpts = mode ? ((mode.attributes || {}).options || []) : [];
+      var timer = x.timer && H.states[x.timer], ta = timer ? (timer.attributes || {}) : {}, tv = num(H, x.timer);
+      var on = x.sw && H.states[x.sw] && H.states[x.sw].state === 'on';
+      var prob = x.problem && H.states[x.problem], pa = prob ? (prob.attributes || {}) : {};
+      sig.push(x.device, st.s, st.label, w == null ? '' : Math.round(w / 10), A == null ? '' : A.toFixed(1), V == null ? '' : Math.round(V), T == null ? '' : Math.round(T),
+        cur, sess == null ? '' : sess.toFixed(2), last == null ? '' : last.toFixed(2), today == null ? '' : today.toFixed(2), month == null ? '' : month.toFixed(1),
+        mode ? mode.state : '', tv, on, st.fault, hist ? hist.length : 0);
+      var cost = function (k) { return pr != null && k != null ? money(H, k * pr) : null; };
+      var stat = function (l, big, small, cls) { return '<div class="sb' + (cls ? ' ' + cls : '') + '"><div class="l">' + esc(l) + '</div><div class="v">' + esc(big) + '</div>' + (small ? '<div class="s">' + esc(small) + '</div>' : '') + '</div>'; };
+      var stats = '';
+      if (x.energy) stats += stat(tr('This session'), fmtKwh(sess), cost(sess) || '');
+      if (x.last) stats += stat(tr('Last session'), fmtKwh(last), cost(last) || '');
+      if (x.energy && today != null) stats += stat(tr('Today'), cost(today) || fmtKwh(today), cost(today) ? fmtKwh(today) : '');
+      if (x.energy && month != null) stats += stat(tr('Month'), cost(month) || fmtKwh(month), cost(month) ? fmtKwh(month) : '');
+      if (T != null) stats += stat(tr('Temperature'), Math.round(T) + (unitOf(H, x.temp) || '°C'), T >= 75 ? tr('Too hot') : T >= 60 ? tr('Running warm') : tr('Normal'), T >= 75 ? 'hot' : T >= 60 ? 'warm' : '');
+      // Speed: the set current, what that means in kW, and what the car actually takes.
+      var speed = '';
+      if (x.current) {
+        var chips = evPresets(lo, hi, step).map(function (a) { return '<button class="ch' + (cur === a ? ' sel' : '') + '" data-a="' + a + '">' + a + ' A</button>'; }).join('');
+        speed = '<div class="blk spd"><div class="k mut">' + esc(tr('Charging speed')) + '</div>' +
+          '<div class="pm"><button data-d="-1" aria-label="' + esc(tr('Slower')) + '"' + (cur != null && cur <= lo ? ' disabled' : '') + '>−</button>' +
+          '<div class="set"><b>' + esc(cur == null ? '–' : String(cur)) + '<small> A</small></b><span>≈ ' + esc(estW == null ? '–' : fmtW(estW)) + '</span></div>' +
+          '<button data-d="1" aria-label="' + esc(tr('Faster')) + '"' + (cur != null && cur >= hi ? ' disabled' : '') + '>+</button></div>' +
+          '<div class="chips">' + chips + '</div>' +
+          (st.charging && A != null && cur != null && A < cur - 1 ? '<div class="note mut">' + esc(tr('The car is taking') + ' ' + A.toFixed(1) + ' A') + '</div>' : '') + '</div>';
+      }
+      var modes = '';
+      if (modeOpts.length) {
+        var pretty = function (m) { var s = String(m).replace(/_/g, ' '); return tr(s.charAt(0).toUpperCase() + s.slice(1)); };
+        modes = '<div class="blk"><div class="k mut">' + esc(tr('Charging mode')) + '</div><div class="chips">' +
+          modeOpts.map(function (m) { return '<button class="ch' + (mode.state === m ? ' sel' : '') + '" data-m="' + esc(m) + '">' + esc(pretty(m)) + '</button>'; }).join('') + '</div>' +
+          (timer && /delay|schedul|timer|later/.test(mode.state) ? '<div class="tm"><span class="mut">' + esc(friendly(H, x.timer).replace(x.name, '').trim() || tr('Timer')) + '</span>' +
+            '<div class="mini"><button data-t="-1">−</button><b>' + esc(tv == null ? '–' : tv + ' ' + (ta.unit_of_measurement || '')) + '</b><button data-t="1">+</button></div></div>' : '') + '</div>';
+      }
+      // Off-grid hint: what the house has to give right now.
+      var hint = '';
+      if (st.charging && (soc != null || solarW != null)) {
+        var bits = []; if (solarW != null) bits.push(tr('Solar') + ' ' + fmtW(solarW)); if (soc != null) bits.push(tr('Battery') + ' ' + Math.round(soc) + '%');
+        hint = '<div class="hint' + (soc != null && soc < 80 ? ' low' : '') + '">' + esc(bits.join(' · ')) + (soc != null && soc < 80 ? ' — ' + esc(tr('consider a slower speed')) : '') + '</div>';
+      }
+      return '<div class="ev' + (st.charging ? ' act' : '') + (st.fault ? ' bad' : '') + '">' +
+        '<div class="blk hero"><div class="row"><div class="ic"><ha-icon icon="mdi:ev-station"></ha-icon></div><div class="nm"><b>' + esc(x.name) + '</b><span><i></i>' + esc(tr(st.label)) + '</span></div>' +
+        (x.sw ? '<button class="go' + (on ? ' on' : '') + '" data-sw="' + esc(x.sw) + '">' + esc(on ? tr('Stop') : tr('Start')) + '</button>' : '') + '</div>' +
+        (st.fault ? '<div class="flt">' + esc(tr('Fault')) + (pa.description && pa.description !== 'ok' ? ': ' + esc(pa.description) : '') + (pa.fault_code ? ' (' + esc(pa.fault_code) + ')' : '') + '</div>' : '') +
+        '<div class="now">' + esc(st.charging && w != null ? fmtW(w) : '0 W') + ' <small>' + esc(st.charging ? tr('charging now') : tr('not charging')) + '</small></div>' +
+        '<div class="sub mut">' + esc([A != null ? A.toFixed(1) + ' A' : null, V != null ? Math.round(V) + ' V' : null].filter(Boolean).join(' · ')) + '</div>' +
+        (sp ? '<svg class="sp" viewBox="0 0 300 56" preserveAspectRatio="none"><path d="' + sp.area + '" fill="rgba(var(--c),.18)"/><path d="' + sp.line + '" fill="none" stroke="rgb(var(--c))" stroke-width="2" vector-effect="non-scaling-stroke"/></svg><div class="ax mut"><span>' + esc(tr('12 h ago')) + '</span><span>' + esc(tr('now')) + '</span></div>' : '') +
+        hint + '</div>' +
+        '<div class="side">' + speed + modes + (stats ? '<div class="stats">' + stats + '</div>' : '') + '</div></div>';
+    });
+    return {
+      sig: sig.join('|'), html: '<div class="wrap">' + cards.join('') + '</div>',
+      css: '.wrap{display:grid;gap:14px}.ev{--c:120,200,140;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px;align-items:start}.ev.bad{--c:240,110,100}' +
+        '.side{display:grid;gap:8px}.hero{background:linear-gradient(160deg,rgba(var(--c),.12),rgba(var(--sy-rgb,255,255,255),.05))}' +
+        '.row{display:flex;align-items:center;gap:10px}.ic{width:38px;height:38px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;background:rgba(var(--c),.22);color:rgb(var(--c))}.ic ha-icon{--mdc-icon-size:20px}' +
+        '.nm{flex:1;min-width:0}.nm b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.nm span{font-size:12px;color:rgba(var(--sy-rgb,255,255,255),.65);display:flex;align-items:center;gap:6px}' +
+        '.nm i{width:8px;height:8px;border-radius:50%;background:rgba(var(--sy-rgb,255,255,255),.35)}.act .nm i{background:rgb(var(--c));box-shadow:0 0 0 3px rgba(var(--c),.25)}.bad .nm i{background:rgb(240,110,100)}' +
+        '.go{flex:0 0 auto;border:0;border-radius:999px;padding:7px 16px;font-weight:700;font-size:13px;cursor:pointer;background:rgba(var(--c),.85);color:#fff}.go.on{background:rgba(var(--sy-rgb,255,255,255),.14);color:var(--sy-ink,#fff)}' +
+        '.flt{margin-top:10px;border-radius:12px;padding:8px 11px;background:rgba(240,110,100,.18);color:rgb(240,140,130);font-size:13px;font-weight:600}' +
+        '.now{font-size:30px;font-weight:800;letter-spacing:-.5px;margin:12px 0 0}.now small{font-size:12.5px;font-weight:600;letter-spacing:0;color:rgba(var(--sy-rgb,255,255,255),.6)}.sub{font-size:13px;margin-top:2px}' +
+        '.sp{display:block;width:100%;height:46px;margin:10px 0 2px}.ax{display:flex;justify-content:space-between;font-size:10.5px}' +
+        '.hint{margin-top:10px;font-size:12.5px;border-radius:11px;padding:7px 10px;background:rgba(var(--sy-rgb,255,255,255),.06)}.hint.low{background:rgba(240,190,90,.16)}' +
+        '.spd .pm{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px}' +
+        '.pm button,.mini button{width:44px;height:44px;flex:0 0 auto;border:0;border-radius:50%;background:rgba(var(--sy-rgb,255,255,255),.1);font-size:22px;cursor:pointer}.pm button[disabled]{opacity:.35;cursor:default}' +
+        '.set{text-align:center}.set b{display:block;font-size:30px;font-weight:800;line-height:1.1}.set b small{font-size:15px;font-weight:700}.set span{font-size:12.5px;color:rgba(var(--sy-rgb,255,255,255),.62)}' +
+        '.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.ch{border:0;border-radius:999px;padding:7px 12px;min-height:34px;background:rgba(var(--sy-rgb,255,255,255),.08);font-size:12.5px;font-weight:600;cursor:pointer}' +
+        '.ch.sel{background:rgba(var(--c),.85);color:#fff}.note{font-size:12px;margin-top:8px}' +
+        '.tm{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:13px}.mini{display:flex;align-items:center;gap:10px}.mini button{width:34px;height:34px;font-size:18px}.mini b{min-width:52px;text-align:center}' +
+        '.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px}.sb{border-radius:12px;background:rgba(var(--sy-rgb,255,255,255),.06);padding:8px 10px}' +
+        '.sb .l{font-size:10.5px;color:rgba(var(--sy-rgb,255,255,255),.55)}.sb .v{font-size:15px;font-weight:750}.sb .s{font-size:10.5px;color:rgba(var(--sy-rgb,255,255,255),.55)}' +
+        '.sb.warm .s{color:rgb(240,190,90)}.sb.hot{background:rgba(240,110,100,.16)}.sb.hot .s{color:rgb(240,140,130)}',
+      bind: function (root) {
+        var self = this;
+        root.querySelectorAll('.ev').forEach(function (card, i) {
+          var x = list[i]; if (!x) return;
+          var setA = function (a) {
+            var ca = (self._h.states[x.current] || {}).attributes || {}, lo = ca.min != null ? +ca.min : 6, hi = ca.max != null ? +ca.max : 32;
+            a = Math.max(lo, Math.min(hi, a));
+            evPending[x.current] = a; self._sig = null; self._go();
+            clearTimeout(evPending['t:' + x.current]);
+            // Wait for the last tap, then send once: chargers dislike a burst of writes.
+            evPending['t:' + x.current] = setTimeout(function () {
+              self._h.callService('number', 'set_value', { entity_id: x.current, value: a });
+              setTimeout(function () { delete evPending[x.current]; self._sig = null; self._go(); }, 4000);
+            }, 700);
+          };
+          card.querySelectorAll('[data-d]').forEach(function (b) {
+            b.addEventListener('click', function () {
+              var ca = (self._h.states[x.current] || {}).attributes || {}, st = ca.step != null ? +ca.step : 1;
+              var now = evPending[x.current] != null ? evPending[x.current] : num(self._h, x.current);
+              if (now != null) setA(now + st * +b.dataset.d);
+            });
+          });
+          card.querySelectorAll('[data-a]').forEach(function (b) { b.addEventListener('click', function () { setA(+b.dataset.a); }); });
+          card.querySelectorAll('[data-m]').forEach(function (b) { b.addEventListener('click', function () { self._h.callService('select', 'select_option', { entity_id: x.mode, option: b.dataset.m }); }); });
+          card.querySelectorAll('[data-t]').forEach(function (b) {
+            b.addEventListener('click', function () {
+              var ta = (self._h.states[x.timer] || {}).attributes || {}, v = num(self._h, x.timer) || 0, st = ta.step != null ? +ta.step : 1;
+              v = Math.max(ta.min != null ? +ta.min : 0, Math.min(ta.max != null ? +ta.max : 24, v + st * +b.dataset.t));
+              self._h.callService('number', 'set_value', { entity_id: x.timer, value: v });
+            });
+          });
+          card.querySelectorAll('[data-sw]').forEach(function (b) {
+            b.addEventListener('click', function () { b.classList.toggle('on'); self._h.callService('switch', 'toggle', { entity_id: b.dataset.sw }); });
+          });
+        });
       },
     };
   });
@@ -835,6 +1043,12 @@ import './greeting.js';
     if (prefs(H)) { srcCache.H = H; srcCache.out = out; }
     return out;
   }
+  // Does one of these rooms hold the energy system (inverter, battery)?
+  function systemHere(H, rooms) {
+    var src = sourceDevices(H), D = H.devices || {}, areas = (rooms || []).map(function (r) { return r && (r.area || r); }).filter(Boolean);
+    return Object.keys(src).some(function (d) { return areas.indexOf((D[d] || {}).area_id) >= 0; });
+  }
+  window.sunyaadSystemHere = systemHere;
   function roomDevices(H, area) {
     var R = H.entities || {}, D = H.devices || {}, byDev = {}, src = sourceDevices(H);
     Object.keys(H.states).forEach(function (e) {
@@ -843,7 +1057,7 @@ import './greeting.js';
       var dev = r.device_id, a = r.area_id || (D[dev] || {}).area_id; if (a !== area || (dev && src[dev])) return;
       var dc = dclass(H, e), sc = ((H.states[e].attributes || {}).state_class) || '';
       var key = dev || e, d = byDev[key] || (byDev[key] = { id: key, name: dev && D[dev] ? (D[dev].name_by_user || D[dev].name) : friendly(H, e), power: null, energy: null, ent: [] });
-      if (dc === 'power' && !d.power && watts(H, e) != null) d.power = e;
+      if (dc === 'power' && watts(H, e) != null && (!d.power || Math.abs(watts(H, e)) > Math.abs(watts(H, d.power)))) d.power = e;
       if (dc === 'energy' && /total/.test(sc) && !d.energy) d.energy = e;
     });
     Object.keys(H.states).forEach(function (e) {
@@ -988,7 +1202,8 @@ import './greeting.js';
   }
   window.sunyaadAreaIds = areaIds;
   // A plug's main switch has no name of its own ("Metering only mode" and the like do).
-  function isPlug(H) { return function (e) { var r = (H.entities || {})[e]; return r && !r.name; }; }
+  // An EV charger's switch is not a plug: the charger has its own tile.
+  function isPlug(H) { return function (e) { var r = (H.entities || {})[e]; return r && !r.name && !isEvEntity(H, e); }; }
   var SENSOR_CLASSES = /^(occupancy|presence|motion|door|window|opening|moisture|smoke|gas|temperature|humidity)$/;
   function roomSections(H, area) {
     var all = areaIds(H, area);
@@ -1024,8 +1239,10 @@ import './greeting.js';
   // ── Tiles of a page that brings several areas together (Bedrooms) ─────────────────────────
   // Used by the dashboard (casora-smart-row) and by the Studio preview, so both show the same.
   // rooms: area ids or {name, area}; tiles: the keys to show, in order (default below).
-  var MERGED_TILES = ['lights', 'media', 'climate', 'appliances', 'energy'];
-  var MERGED_LABEL = { lights: 'Lights', media: 'Entertainment', climate: 'Climate', appliances: 'Appliances', energy: 'Energy', presence: 'Presence' };
+  var MERGED_TILES = ['lights', 'media', 'climate', 'appliances', 'ev', 'battery', 'system', 'energy'];
+  // Tiles that come by themselves when the page holds what they show, even on a page saved before them.
+  var AUTO_TILES = ['ev', 'battery', 'system'];
+  var MERGED_LABEL = { lights: 'Lights', media: 'Entertainment', climate: 'Climate', appliances: 'Appliances', ev: 'EV Charger', battery: 'Battery', system: 'Solar & Inverter', energy: 'Energy', presence: 'Presence' };
   function normRooms(H, rooms) {
     return (rooms || []).map(function (r) {
       if (typeof r === 'string') return { name: ((H.areas || {})[r] || {}).name || r, area: r };
@@ -1041,7 +1258,14 @@ import './greeting.js';
     var S = H.states, rooms = normRooms(H, roomsIn), out = [];
     var per = rooms.map(function (r) { return Object.assign({ sec: roomSections(H, r) }, r); });
     var all = function (k) { return per.reduce(function (a, r) { return a.concat(r.sec[k]); }, []); };
-    var order = Array.isArray(tiles) && tiles.length ? tiles : MERGED_TILES;
+    var order = Array.isArray(tiles) && tiles.length ? tiles.slice() : MERGED_TILES;
+    // A page saved before these tiles existed still gets them, where they sit in the default order.
+    AUTO_TILES.forEach(function (k) {
+      if (order.indexOf(k) >= 0) return;
+      var at = order.length, mi = MERGED_TILES.indexOf(k);
+      for (var q = 0; q < order.length; q++) if (MERGED_TILES.indexOf(order[q]) > mi) { at = q; break; }
+      order.splice(at, 0, k);
+    });
     var isOcc = function (e) { return /occupancy|presence|motion/.test(dclass(H, e) || ''); };
     order.forEach(function (key) {
       var name = tr(MERGED_LABEL[key] || key), e, on;
@@ -1060,6 +1284,24 @@ import './greeting.js';
       } else if (key === 'appliances' && (e = all('plugs')).length) {
         on = e.filter(function (x) { return S[x].state === 'on'; }).length;
         out.push({ key: key, name: name, icon: 'plug', state: on ? on + ' ' + tr('on') : tr('Off'), active: e, content: { type: 'custom:sunyaad-appliances', rooms: rooms } });
+      } else if (key === 'ev') {
+        var evs = evChargers(H).filter(function (x) { return rooms.some(function (r) { return evInArea(H, x, r.area); }); });
+        if (!evs.length) return;
+        var sm = evSummary(H, evs);
+        out.push({ key: key, name: evs.length === 1 && !EV_NAME.test(evs[0].name) ? evs[0].name : name, icon: 'car', state: sm.text,
+          active: sm.active ? evs.map(function (x) { return x.sw || x.status; }).filter(Boolean) : [], content: { type: 'custom:sunyaad-ev', rooms: rooms } });
+      } else if ((key === 'battery' || key === 'system') && rooms.length <= 3 && systemHere(H, rooms)) {
+        // The room that holds the inverter and battery (a utility room) shows them like Home does.
+        var E = energy(H), hv = window._sunyaadHomeVars || {}, soc = num(H, E.soc), bw = E.batW;
+        if (key === 'battery') {
+          if (soc == null && bw == null) return;
+          out.push({ key: key, name: name, icon: 'battery', state: (soc != null ? Math.round(soc) + '%' : '') + (bw != null && Math.abs(bw) > 20 ? (soc != null ? ' · ' : '') + (bw < 0 ? '+' : '−') + fmtW(bw) : ''),
+            active: E.soc ? [E.soc] : [], content: { type: 'custom:sunyaad-battery', packs: hv.sunyaad_battery_packs, reserve: hv.sunyaad_battery_reserve } });
+        } else {
+          var load = watts(H, hv.energy_power_entity);
+          out.push({ key: key, name: name, icon: 'energy', state: tr('Solar') + ' ' + fmtW(E.solarW || 0) + (load != null ? ' · ' + tr('Load') + ' ' + fmtW(load) : ''),
+            active: [], content: { type: 'custom:sunyaad-energy', house: hv.energy_power_entity || null } });
+        }
       } else if (key === 'energy') {
         var pw = rooms.map(function (r) { return roomPower(H, r.area); });
         if (!pw.some(function (x) { return x.ids.length; })) return;
@@ -1154,6 +1396,7 @@ import './greeting.js';
       // What the pop-ups cover; the rest of the room's tiles go to "More".
       var sec = roomSections(H, normRooms(H, rooms)[0]), used = {};
       Object.keys(sec).forEach(function (k) { sec[k].forEach(function (e) { used[e] = 1; }); });
+      if (!tiles || tiles.indexOf('ev') >= 0 || tiles.indexOf('appliances') >= 0) evChargers(H).forEach(function (x) { if (evInArea(H, x, area)) x.ents.forEach(function (e) { used[e] = 1; }); });
       rest = cards.filter(function (c) { var es = cardEnts(c); return !es.length || !es.some(function (e) { return used[e] || e.indexOf('light.') === 0; }); });
       // Appliance tiles (washer, dryer, coffee machine …) join Appliances instead of More.
       appl = rest.filter(function (c) { return APPL_TPL.test(tplOf(c)); });
@@ -1322,6 +1565,12 @@ import './greeting.js';
     if (pv != null && pv > 50) out.push({ key: 'solar', label: 'Solar', icon: 'mdi:solar-power-variant', c: '255,200,90', value: kw(pv), open: 'energy', badge: 'casora_badge_energy_group' });
     const load = num(H, vars && vars.energy_power_entity);
     if (load != null) out.push({ key: 'energy', label: 'Energy', icon: 'mdi:lightning-bolt', c: '255,190,90', value: kw(load), open: 'energy', badge: 'casora_badge_energy_group' });
+    // EV charger: shown while a car is plugged in (charging, waiting, charged) or the charger reports a fault
+    const evs = window.sunyaadEvChargers ? window.sunyaadEvChargers(H) : [];
+    if (evs.length) {
+      const sm = window.sunyaadEvSummary(H, evs);
+      if (sm.active) out.push({ key: 'ev', label: 'EV', icon: 'mdi:ev-station', c: '120,200,140', value: sm.text, content: { type: 'custom:sunyaad-ev' } });
+    }
     // Occupied rooms
     const occ = all.filter((e) => e.startsWith('binary_sensor.') && ['occupancy', 'presence', 'motion'].indexOf((S[e].attributes || {}).device_class) >= 0);
     const rooms = [];
@@ -1380,13 +1629,31 @@ import './greeting.js';
       out.push({ key: 'temp', label: 'Temperature', icon: 'mdi:thermometer', c: '100,210,255', value: Math.round(parseFloat(S[temp].state)) + '°', popup: [tile('casora_entity', temp)] });
     }
     // Appliances: plugs (a device's main switch) with their power
-    const sw = all.filter((e) => e.startsWith('switch.') && !(R[e] || {}).name);
+    const isEv = (e) => !!(window.sunyaadIsEvEntity && window.sunyaadIsEvEntity(H, e));
+    const sw = all.filter((e) => e.startsWith('switch.') && !(R[e] || {}).name && !isEv(e));
     if (sw.length) {
       let w = 0, hasW = false;
       sw.forEach((e) => { if (S[e].state !== 'on') return; const d = (R[e] || {}).device_id; const p = d && Object.keys(S).find((x) => x.startsWith('sensor.') && (R[x] || {}).device_id === d && dc(x) === 'power'); if (p && !isNaN(parseFloat(S[p].state))) { w += parseFloat(S[p].state); hasW = true; } });
       const on = sw.filter((e) => S[e].state === 'on').length;
       out.push({ key: 'appliances', label: 'Appliances', icon: 'mdi:power-plug-outline', c: '150,170,255', value: hasW ? kw(w) : on ? on + ' on' : 'Off',
         content: { type: 'custom:sunyaad-appliances', cards: sw.map((e) => tile('casora_switch', e)) } });
+    }
+    // The energy system in this room (inverter, battery): the same items Home shows
+    if (window.sunyaadSystemHere && window.sunyaadSystemHere(H, areas || (area ? [area] : []))) {
+      const E = window.sunyaadEnergy(H), soc = E.soc && S[E.soc] ? parseFloat(S[E.soc].state) : null, bp = E.batW, pv = E.solarW;
+      const hv = window._sunyaadHomeVars || {}, ld = hv.energy_power_entity && S[hv.energy_power_entity] ? parseFloat(S[hv.energy_power_entity].state) : null;
+      const sys = [];
+      if (soc != null && !isNaN(soc)) sys.push({ key: 'battery', label: 'Battery', icon: soc >= 90 ? 'mdi:battery-high' : soc >= 40 ? 'mdi:battery-medium' : 'mdi:battery-low', c: '120,220,160', value: Math.round(soc) + '%' + (bp != null && Math.abs(bp) > 50 ? (bp < 0 ? ' · +' : ' · −') + kw(bp) : ''), open: 'battery' });
+      if (pv != null) sys.push({ key: 'solar', label: 'Solar', icon: 'mdi:solar-power-variant', c: '255,200,90', value: kw(pv), open: 'energy' });
+      if (ld != null && !isNaN(ld)) sys.push({ key: 'house', label: 'House load', icon: 'mdi:home-lightning-bolt-outline', c: '255,190,90', value: kw(/^kW$/i.test((S[hv.energy_power_entity].attributes || {}).unit_of_measurement || '') ? ld * 1000 : ld), open: 'energy' });
+      out.unshift.apply(out, sys);
+    }
+    // EV charger in this room: always shown, with its state
+    const evs = (window.sunyaadEvChargers ? window.sunyaadEvChargers(H) : []).filter((x) => x.ents.some((e) => all.indexOf(e) >= 0));
+    if (evs.length) {
+      const sm = window.sunyaadEvSummary(H, evs);
+      out.push({ key: 'ev', label: 'EV Charger', icon: 'mdi:ev-station', c: '120,200,140', value: sm.text,
+        content: { type: 'custom:sunyaad-ev', rooms: area ? [{ name: '', area }] : (areas || []).map((a) => ({ name: '', area: a })) } });
     }
     // Media
     const mp0 = all.filter((e) => e.startsWith('media_player.')), mp = window.sunyaadOneEach ? window.sunyaadOneEach(H, mp0) : mp0;

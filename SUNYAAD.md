@@ -8,7 +8,7 @@ marked hooks (search for `Sunyaad`), so a new Casora version can be taken over b
 
 | File | What it does |
 | --- | --- |
-| `scripts/sunyaad/sunyaad.js` | Pop-ups (battery, energy, gate, lights, climate, appliances, room energy), the banner, the tile plan for every page (`window.sunyaadPagePlan`) |
+| `scripts/sunyaad/sunyaad.js` | Pop-ups (battery, energy, gate, lights, climate, appliances, EV charger, room energy), the banner, the tile plan for every page (`window.sunyaadPagePlan`) |
 | `scripts/sunyaad/rows.js` | The tile row (`casora-smart-row`): one tile per group, drawn by Casora's own row |
 | `scripts/sunyaad/greeting.js` | Smart greeting; wraps `window.casoraGreeting` / `window.casoraFitTitle` |
 | `panel/sunyaad-studio.js` | Studio: "Tiles & areas", smart-greeting and battery fields, preview |
@@ -33,7 +33,9 @@ marked hooks (search for `Sunyaad`), so a new Casora version can be taken over b
 On the page's tile row (`custom:casora-smart-row`):
 
 - `sunyaad_rooms`: the areas the page brings together (Bedrooms). Empty: a normal room.
-- `sunyaad_tiles`: which tiles, in order (`lights`, `media`, `climate`, `appliances`, `energy`, `presence`, `more`).
+- `sunyaad_tiles`: which tiles, in order (`lights`, `media`, `climate`, `appliances`, `ev`, `battery`, `system`, `energy`, `presence`, `more`).
+  `ev` (an EV charger in the room), `battery` and `system` (the room holding the inverter and battery) come by
+  themselves when the page has what they show, even on pages saved before them.
 
 The Studio carries the row through every save unchanged, so Done cannot drop these. Earlier
 versions kept a copy in the header's variables (`sunyaad_areas`, `sunyaad_tiles`); it is still
