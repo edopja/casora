@@ -115,4 +115,10 @@ const sys = window.sunyaadPagePlan(H2, { rooms: [{ name: 'Garage', area: 'garage
 assert.deepEqual(sys, ['appliances', 'ev', 'battery', 'system', 'energy']);
 assert.ok(!window.sunyaadSystemHere(H2, [{ area: 'kitchen' }]), 'not in another room');
 
+// A 32 A charger: the usual settings as chips, 16, 24 and 32 A among them.
+states['number.ev_charger_charging_current'] = st(24, { min: 6, max: 32, step: 1, unit_of_measurement: 'A' });
+el._sig = null; el.hass = { ...H, states: { ...states } };
+const chips = [...el.shadowRoot.innerHTML.matchAll(/data-a="(\d+)"/g)].map((m) => +m[1]);
+assert.deepEqual(chips, [6, 10, 13, 16, 24, 32]);
+
 console.log('sunyaad_ev_charger: ok');

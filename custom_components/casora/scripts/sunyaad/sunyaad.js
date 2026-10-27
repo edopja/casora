@@ -713,7 +713,9 @@ import './greeting.js';
     [8, 10, 13, 16, 20, 24, 32].forEach(function (a) { if (a > lo && a < hi) out.push(a); });
     out.push(hi);
     out = out.filter(function (a, i) { return out.indexOf(a) === i; }).map(function (a) { return step ? Math.round(a / step) * step : a; });
-    while (out.length > 5) out.splice(Math.floor(out.length / 2), 1);
+    // At most six; the usual settings stay (16, 24, 32 A), the in-between ones go first.
+    [20, 8, 13, 10].forEach(function (a) { var i = out.indexOf(a); if (out.length > 6 && i > 0 && i < out.length - 1) out.splice(i, 1); });
+    while (out.length > 6) out.splice(Math.floor(out.length / 2), 1);
     return out;
   }
   var evPending = {};
